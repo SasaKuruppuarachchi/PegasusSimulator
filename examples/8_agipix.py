@@ -37,6 +37,10 @@ from pegasus.simulator.logic.graphs import ROS2Camera
 # Auxiliary scipy and numpy modules
 from scipy.spatial.transform import Rotation
 
+# Import Isaac Sim Action Graph components
+import omni.graph.core as og
+from omni.isaac.core_nodes.scripts.utils import set_target_prims
+
 class PegasusApp:
     """
     A Template class that serves as an example on how to build a simple Isaac Sim standalone App.
@@ -79,7 +83,7 @@ class PegasusApp:
         # namespace `quadrotor` and frame_id `Camera` followed by the selected camera types (`rgb`, `camera_info`).
         config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info']})]
 
-        Multirotor(
+        self.drone = Multirotor(
             "/World/drone0",
             ROBOTS['Iris'],
             0,
@@ -91,8 +95,47 @@ class PegasusApp:
         # Reset the simulation environment so that all articulations (aka robots) are initialized
         self.world.reset()
 
+        # Initialize the Action Graph to publish drone odometry
+        self.init_action_graph()
+
         # Auxiliar variable for the timeline callback example
         self.stop_sim = False
+
+    def init_action_graph(self):
+        keys = og.Controller.Keys
+
+        (graph_handle, list_of_nodes, _, _) = og.Controller.edit(
+            {"graph_path": "/action_graph", "evaluator_name": "execution"},
+            {
+                keys.CREATE_NODES: [
+                    ("tick", "omni.graph.action.OnTick"),
+                    ("read_times", "omni.isaac.core_nodes.IsaacReadTimes"),
+                    ("compute_odometry", "omni.isaac.core_nodes.IsaacComputeOdometry"),
+                    ("publish_clock", "omni.isaac.ros2_bridge.ROS2PublishClock"),
+                    ("publish_odometry", "omni.isaac.ros2_bridge.ROS2PublishOdometry")
+                ],
+                keys.SET_VALUES: [
+                    ("compute_odometry.inputs:chassisPrim", "/World/drone0"),
+                    ("publish_clock.inputs:topicName", "clock"),
+                    #("publish_odometry.inputs:nodeNamespace", "drone0"),
+                    ("publish_odometry.inputs:topicName", "drone0/gt"),
+                    ("publish_odometry.inputs:odomFrameId", "world"),
+                    ("publish_odometry.inputs:chassisFrameId", "drone0/base_link")
+                ],
+                keys.CONNECT: [
+                    ("tick.outputs:tick", "read_times.inputs:execIn"),
+                    ("read_times.outputs:execOut", "compute_odometry.inputs:execIn"),
+                    ("read_times.outputs:execOut", "publish_clock.inputs:execIn"),
+                    ("read_times.outputs:systemTime", "publish_clock.inputs:timeStamp"),
+                    ("read_times.outputs:systemTime", "publish_odometry.inputs:timeStamp"),
+                    ("compute_odometry.outputs:execOut", "publish_odometry.inputs:execIn"),
+                    ("compute_odometry.outputs:angularVelocity", "publish_odometry.inputs:angularVelocity"),
+                    ("compute_odometry.outputs:linearVelocity", "publish_odometry.inputs:linearVelocity"),
+                    ("compute_odometry.outputs:orientation", "publish_odometry.inputs:orientation"),
+                    ("compute_odometry.outputs:position", "publish_odometry.inputs:position")
+                ],
+            },
+        )
 
     def run(self):
         """
@@ -113,7 +156,6 @@ class PegasusApp:
         simulation_app.close()
 
 def main():
-
     # Instantiate the template app
     pg_app = PegasusApp()
 
