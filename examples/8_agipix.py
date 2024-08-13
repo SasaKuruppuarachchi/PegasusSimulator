@@ -41,6 +41,34 @@ from scipy.spatial.transform import Rotation
 import omni.graph.core as og
 from omni.isaac.core_nodes.scripts.utils import set_target_prims
 
+# ROS 2 imports
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import PoseStamped
+
+class DroneLocationPublisher(Node):
+    def __init__(self):
+        super().__init__('drone_location_publisher')
+        self.publisher_ = self.create_publisher(PoseStamped, 'drone0/gt_pose', 10)
+
+    def publish_location(self, position, orientation):
+        msg = PoseStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'vicon_map'
+        msg.pose.position.x = position[0]
+        msg.pose.position.y = position[1]
+        msg.pose.position.z = position[2]
+        # Assuming orientation is an instance of Gf.Quatd
+        real_part = orientation.GetReal()
+        imaginary_part = orientation.GetImaginary()
+
+        msg.pose.orientation.w = real_part
+        msg.pose.orientation.x = imaginary_part[0]
+        msg.pose.orientation.y = imaginary_part[1]
+        msg.pose.orientation.z = imaginary_part[2]
+
+        self.publisher_.publish(msg)
+
 class PegasusApp:
     """
     A Template class that serves as an example on how to build a simple Isaac Sim standalone App.
@@ -95,8 +123,19 @@ class PegasusApp:
         # Reset the simulation environment so that all articulations (aka robots) are initialized
         self.world.reset()
 
+        self.stage = omni.usd.get_context().get_stage()
+        self.drone_prim = self.stage.GetPrimAtPath("/World/drone0/body")
+
+
+        # Initialize ROS 2
+        rclpy.init()
+
+        # Create ROS 2 publisher node
+        self.node = DroneLocationPublisher()
+
         # Initialize the Action Graph to publish drone odometry
-        self.init_action_graph()
+        #self.init_action_graph()
+        self.init_pub_time_graph()
 
         # Auxiliar variable for the timeline callback example
         self.stop_sim = False
@@ -137,6 +176,30 @@ class PegasusApp:
             },
         )
 
+    def init_pub_time_graph(self):
+        keys = og.Controller.Keys
+
+        (graph_handle, list_of_nodes, _, _) = og.Controller.edit(
+            {"graph_path": "/time_graph", "evaluator_name": "execution"},
+            {
+                keys.CREATE_NODES: [
+                    ("tick", "omni.graph.action.OnTick"),
+                    ("read_times", "omni.isaac.core_nodes.IsaacReadTimes"),
+                    ("publish_clock", "omni.isaac.ros2_bridge.ROS2PublishClock"),
+                    
+                ],
+                keys.SET_VALUES: [
+                    ("publish_clock.inputs:topicName", "clock")
+                ],
+                keys.CONNECT: [
+                    ("tick.outputs:tick", "read_times.inputs:execIn"),
+                    ("read_times.outputs:execOut", "publish_clock.inputs:execIn"),
+                    ("read_times.outputs:simulationTime", "publish_clock.inputs:timeStamp")
+                ],
+            },
+        )
+
+
     def run(self):
         """
         Method that implements the application main loop, where the physics steps are executed.
@@ -149,6 +212,12 @@ class PegasusApp:
         while simulation_app.is_running() and not self.stop_sim:
             # Update the UI of the app and perform the physics step
             self.world.step(render=True)
+            # Get drone position and orientation
+            position = self.drone_prim.GetAttribute('xformOp:translate')
+            orientation = self.drone_prim.GetAttribute('xformOp:orient')
+            
+            # Publish drone location to ROS 2
+            self.node.publish_location(position.Get(), orientation.Get())
 
         # Cleanup and stop
         carb.log_warn("PegasusApp Simulation App is closing.")
