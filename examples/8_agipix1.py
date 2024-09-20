@@ -34,9 +34,8 @@ from pegasus.simulator.logic.backends.mavlink_backend import MavlinkBackend, Mav
 from pegasus.simulator.logic.vehicles.multirotor import Multirotor, MultirotorConfig
 from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 from pegasus.simulator.logic.graphs import ROS2Camera
-from rclpy.parameter import Parameter
+
 # Auxiliary scipy and numpy modules
-import numpy as np
 from scipy.spatial.transform import Rotation
 
 # Import Isaac Sim Action Graph components
@@ -47,38 +46,23 @@ from omni.isaac.core_nodes.scripts.utils import set_target_prims
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Imu
-from builtin_interfaces.msg import Time
 from std_msgs.msg import Float32
 
-# lidar
+#lidar
+import asyncio                                                  # Used to run sample asynchronously to not block rendering thread
+from omni.isaac.range_sensor import _range_sensor               # Imports the python bindings to interact with lidar sensor
+from pxr import UsdGeom, Gf, UsdPhysics 
 
-import omni
-import omni.kit.viewport.utility
-import omni.replicator.core as rep
-from omni.isaac.core import SimulationContext
-from omni.isaac.core.utils import nucleus, stage
-from pxr import Gf
-import math
 
 class DroneLocationPublisher(Node):
     def __init__(self):
         super().__init__('drone_location_publisher')
-        #self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
         self.publisher_ = self.create_publisher(PoseStamped, 'drone0/gt_pose', 10)
         self.rtf_publisher_ = self.create_publisher(Float32, 'real_Time_factor', 10)
-        self.imu_publisher_ = self.create_publisher(Imu, 'drone0/gt_imu', 10)
-        self.pre_pose_pos = None
-        self.pre_pose_ori = None
-        self.u = None
-        #self.timer = self.create_timer(1.0, self.check_clock_topic)  # Check every 1 second
 
-    def publish_location(self, position, orientation,sim_time):
+    def publish_location(self, position, orientation):
         msg = PoseStamped()
-        sim_time_ = Time()
-        sim_time_.sec = math.floor(sim_time)
-        sim_time_.nanosec = int((sim_time - sim_time_.sec) * 1e9)
-        msg.header.stamp = sim_time_ # self.get_clock().now().to_msg()
+        msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'vicon_map'
         msg.pose.position.x = position[0]
         msg.pose.position.y = position[1]
@@ -93,103 +77,12 @@ class DroneLocationPublisher(Node):
         msg.pose.orientation.z = imaginary_part[2]
 
         self.publisher_.publish(msg)
-        
-    def quattovec(self,quatf):
-        vec = [] # x,y,z,w
-        real_part = quatf.GetReal()
-        imaginary_part = quatf.GetImaginary()
-
-        vec.append(imaginary_part[0])
-        vec.append(imaginary_part[1])
-        vec.append(imaginary_part[2])
-        vec.append(real_part)
-        return vec
-    def rotate_vector_by_quaternion(self,vector, quat):
-        # Convert the quaternion to a Rotation object
-        vector = np.array(vector)
-        r = Rotation.from_quat(quat)
-        
-        # Rotate the vector using the quaternion
-        rotated_vector = r.apply(vector)
-        
-        return rotated_vector
-        
-    def publish_gt_imu(self, position, orientation, sim_time, dt):
-        if self.pre_pose_pos is None:
-            # First time initialization
-            self.pre_pose_pos = position
-            self.pre_pose_ori = self.quattovec(orientation)
-            return  # No IMU data to publish on first call
-
-        # Initialize velocity if not available yet
-        if self.u is None:
-            self.u = (position - self.pre_pose_pos) / dt
-            self.pre_pose_pos = position
-            self.pre_pose_ori = self.quattovec(orientation)
-            return
-
-        if dt:
-            msg = Imu()
-            # Prepare the timestamp
-            sim_time_ = Time()
-            sim_time_.sec = math.floor(sim_time)
-            sim_time_.nanosec = int((sim_time - sim_time_.sec) * 1e9)
-            msg.header.stamp = sim_time_
-            msg.header.frame_id = 'vicon_map'
-
-            # Calculate linear acceleration
-            new_velocity = (position - self.pre_pose_pos) / dt
-            lin_acc = (new_velocity - self.u) / dt - [0.0, 0.0, 9.822]  # Gravity compensation
-            lin_acc = self.rotate_vector_by_quaternion(lin_acc, self.quattovec(orientation))
-
-            msg.linear_acceleration.x = lin_acc[0]
-            msg.linear_acceleration.y = lin_acc[1]
-            msg.linear_acceleration.z = lin_acc[2]
-
-            # Compute angular velocity using quaternion derivatives
-            r_prev = Rotation.from_quat(self.pre_pose_ori)
-            r_next = Rotation.from_quat(self.quattovec(orientation))
-            r_rel = r_next * r_prev.inv()
-            angular_velocity = r_rel.as_rotvec() / dt
-
-            msg.angular_velocity.x = angular_velocity[0]
-            msg.angular_velocity.y = angular_velocity[1]
-            msg.angular_velocity.z = angular_velocity[2]
-
-            # Set orientation
-            q = orientation  # Assuming it's already a quaternion (w, x, y, z)
-            msg.orientation.w = q.GetReal()
-            msg.orientation.x = q.GetImaginary()[0]
-            msg.orientation.y = q.GetImaginary()[1]
-            msg.orientation.z = q.GetImaginary()[2]
-
-            # Publish the IMU message
-            self.imu_publisher_.publish(msg)
-
-            # Update previous state for next iteration
-            self.u = new_velocity
-            self.pre_pose_pos = position
-            self.pre_pose_ori = self.quattovec(orientation)
-
 
     def publish_rtf(self, real_elapsed, sim_elapsed):
         msg= Float32()
         msg.data = sim_elapsed/real_elapsed
         if(msg.data>0.01):
             self.rtf_publisher_.publish(msg)
-    def check_clock_topic(self):
-        # Get the list of topics and types currently available
-        topics_and_types = self.get_topic_names_and_types()
-
-        # Check if /clock topic is available
-        clock_topic_exists = any(topic == '/clock' for topic, _ in topics_and_types)
-
-        # Set use_sim_time to True if /clock topic is present, otherwise keep it False
-        if clock_topic_exists:
-            self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-            self.timer.cancel()
-        print("counter")
-        self.get_logger().info('/clock topic not available. use_sim_time remains False.')
 
 class PegasusApp:
     """
@@ -203,7 +96,6 @@ class PegasusApp:
 
         # Acquire the timeline that will be used to start/stop the simulation
         self.timeline = omni.timeline.get_timeline_interface()
-        self.assets_root_path = nucleus.get_assets_root_path()
 
         # Start the Pegasus Interface
         self.pg = PegasusInterface()
@@ -248,9 +140,38 @@ class PegasusApp:
 
         self.stage = omni.usd.get_context().get_stage()
         self.drone_prim = self.stage.GetPrimAtPath("/World/drone0/body")
+        self.lidarInterface = _range_sensor.acquire_lidar_sensor_interface() # Used to interact with the LIDAR
 
-        self.create_rtx_lidar()
-        # Initialize ROS 2
+        # These commands are the Python-equivalent of the first half of this tutorial
+        #omni.kit.commands.execute('AddPhysicsSceneCommand',stage = self.stage, path='/World/PhysicsScene')
+        self.lidarPath = "/mid360"
+        result, prim = omni.kit.commands.execute(
+                    "RangeSensorCreateLidar",
+                    path=self.lidarPath,
+                    parent=self.drone._stage_prefix + "/body",
+                    min_range=0.4,
+                    max_range=100.0,
+                    draw_points=True,
+                    draw_lines=False,
+                    horizontal_fov=360.0,
+                    vertical_fov=59.0,
+                    horizontal_resolution=0.4,
+                    vertical_resolution=4.0,
+                    rotation_rate=10.0,
+                    high_lod=True,
+                    yaw_offset=0.0,
+                    enable_semantics=False
+                )
+        
+        # Create a cube, sphere, add collision and different semantic labels
+        primType = ["Cube", "Sphere"]
+        for i in range(2):
+            prim = self.stage.DefinePrim("/World/"+primType[i], primType[i])
+            UsdGeom.XformCommonAPI(prim).SetTranslate((-2.0, -2.0 + i * 4.0, 0.0))
+            UsdGeom.XformCommonAPI(prim).SetScale((1, 1, 1))
+            collisionAPI = UsdPhysics.CollisionAPI.Apply(prim)
+
+        #Initialize ROS 2
         rclpy.init()
 
         # Create ROS 2 publisher node
@@ -266,43 +187,15 @@ class PegasusApp:
         self.sim_elapsed_time=0.0
         self.real_elapsed_time=0.0
 
-    def create_rtx_lidar(self):
-        # Create the lidar sensor that generates data into "RtxSensorCpu"
-        # Sensor needs to be rotated 90 degrees about X so that its Z up
-
-        # Possible options are Example_Rotary and Example_Solid_State
-        # drive sim applies 0.5,-0.5,-0.5,w(-0.5), we have to apply the reverse
-        _, sensor = omni.kit.commands.execute(
-            "IsaacSensorCreateRtxLidar",
-            path="/sensor",
-            parent=self.drone._stage_prefix + "/body",
-            config="approx_mid_360",
-            translation=(0, 0, 1.0),
-            orientation=Gf.Quatd(1.0, 0.0, 0.0, 0.0),  # Gf.Quatd is w,i,j,k
-        )
-
-        # RTX sensors are cameras and must be assigned to their own render product
-        hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
-
-        self.simulation_context = SimulationContext(physics_dt=1.0 / 250.0, rendering_dt=1.0 / 100.0, stage_units_in_meters=1.0)
-        simulation_app.update()
-
-        # Create Point cloud publisher pipeline in the post process graph
-        writer = rep.writers.get("RtxLidar" + "ROS2PublishPointCloud")
-        writer.initialize(topicName="point_cloud", frameId="drone0/base_link")
-        writer.attach([hydra_texture])
-
-        # Create the debug draw pipeline in the post process graph
-        #writer = rep.writers.get("RtxLidar" + "DebugDrawPointCloud")
-        #writer.attach([hydra_texture])
-
-
-        # Create LaserScan publisher pipeline in the post process graph
-        #writer = rep.writers.get("RtxLidar" + "ROS2PublishLaserScan")
-        #writer.initialize(topicName="laser_scan", frameId="drone0/base_link")
-        #writer.attach([hydra_texture])
-
-        simulation_app.update()
+    async def get_lidar_param(self):                                    # Function to retrieve data from the LIDAR
+        await omni.kit.app.get_app().next_update_async()            # wait one frame for data
+        #self.timeline.pause()                                            # Pause the simulation to populate the LIDAR's depth buffers
+        depth = self.lidarInterface.get_linear_depth_data("/World"+self.lidarPath)
+        zenith = self.lidarInterface.get_zenith_data("/World"+self.lidarPath)
+        azimuth = self.lidarInterface.get_azimuth_data("/World"+self.lidarPath)
+        print("depth")                                       # Print the data
+        #print("zenith", zenith)
+        #print("azimuth", azimuth)
 
     def init_action_graph(self):
         keys = og.Controller.Keys
@@ -370,34 +263,23 @@ class PegasusApp:
         """
 
         # Start the simulation
-        #self.timeline.play()
-        self.simulation_context.play()
-        self.sim_elapsed_time = self.simulation_context.current_time
-        self.real_elapsed_time = time.time()
+        self.timeline.play()
+        asyncio.ensure_future(self.get_lidar_param())  
+
         # The "infinite" loop
         while simulation_app.is_running() and not self.stop_sim:
-            self.sim_elapsed_time = self.simulation_context.current_time
-            self.real_elapsed_time = time.time()
             # Update the UI of the app and perform the physics step
-            #self.world.step(render=True)
-            simulation_app.update()
-
-            self.sim_elapsed_time = self.simulation_context.current_time - self.sim_elapsed_time
-            self.real_elapsed_time = time.time() - self.real_elapsed_time
-
+            self.world.step(render=True)
             # Get drone position and orientation
             position = self.drone_prim.GetAttribute('xformOp:translate')
             orientation = self.drone_prim.GetAttribute('xformOp:orient')
             
             # Publish drone location to ROS 2
-            self.node.publish_rtf(self.real_elapsed_time,self.sim_elapsed_time)
-            self.node.publish_location(position.Get(), orientation.Get(),self.simulation_context.current_time)
-            self.node.publish_gt_imu(position.Get(), orientation.Get(),self.simulation_context.current_time,self.sim_elapsed_time)
+            self.node.publish_location(position.Get(), orientation.Get())
 
         # Cleanup and stop
         carb.log_warn("PegasusApp Simulation App is closing.")
-        self.simulation_context.stop()
-        #self.timeline.stop()
+        self.timeline.stop()
         simulation_app.close()
 
 def main():

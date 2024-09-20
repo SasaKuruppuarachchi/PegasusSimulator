@@ -65,7 +65,7 @@ class PX4LaunchTool:
 
     def launch_px4(self):
         """
-        Method that will launch a px4 instance with the specified configuration removing one x will enable the code
+        Method that will launch a px4 instance with the specified configuration
         """
         tmux_session_check = subprocess.run(['tmux', 'has-session', '-t', 'xxx'], stdout=subprocess.PIPE)
         if tmux_session_check.returncode == 0:
