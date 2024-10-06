@@ -41,7 +41,7 @@ class GPS(Sensor):
         """
 
         # Initialize the Super class "object" attributes
-        super().__init__(sensor_type="GPS", update_rate=config.get("update_rate", 250.0))
+        super().__init__(sensor_type="GPS", update_rate=config.get("update_rate", 300.0))
 
         # Define the GPS simulated/fixed values
         self._fix_type = config.get("fix_type", 3)

@@ -23,7 +23,7 @@ To instantiate a ``MavlinkBackend`` via Python scripting, consider the following
         "input_offset": [0.0, 0.0, 0.0, 0.0],
         "input_scaling": [1000.0, 1000.0, 1000.0, 1000.0],
         "zero_position_armed": [100.0, 100.0, 100.0, 100.0],
-        "update_rate": 250.0,
+        "update_rate": 300.0,
 
         # Settings for automatically launching PX4
         # If px4_autolaunch==False, then "px4_dir" and "px4_vehicle_model" are unused

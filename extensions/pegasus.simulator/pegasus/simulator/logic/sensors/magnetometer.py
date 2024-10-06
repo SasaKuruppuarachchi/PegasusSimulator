@@ -34,11 +34,11 @@ class Magnetometer(Sensor):
             >>> {"noise_density": 0.4e-3,           # gauss / sqrt(hz)
             >>>  "random_walk": 6.4e-6,             # gauss * sqrt(hz)
             >>>  "bias_correlation_time": 6.0e2,    # s
-            >>>  "update_rate": 250.0}              # Hz
+            >>>  "update_rate": 300.0}              # Hz
         """
 
         # Initialize the Super class "object" attributes
-        super().__init__(sensor_type="Magnetometer", update_rate=config.get("update_rate", 250.0))
+        super().__init__(sensor_type="Magnetometer", update_rate=config.get("update_rate", 300.0))
 
         # Set the noise parameters
         self._bias: np.ndarray = np.array([0.0, 0.0, 0.0])

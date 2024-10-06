@@ -207,7 +207,7 @@ class MavlinkBackendConfig:
             >>>  "input_offset": [0.0, 0.0, 0.0, 0.0],
             >>>  "input_scaling": [1000.0, 1000.0, 1000.0, 1000.0],
             >>>  "zero_position_armed": [100.0, 100.0, 100.0, 100.0],
-            >>>  "update_rate": 250.0
+            >>>  "update_rate": 300.0
             >>> }
         """
 
@@ -231,7 +231,7 @@ class MavlinkBackendConfig:
 
         # The update rate at which we will be sending data to mavlink (TODO - remove this from here in the future
         # and infer directly from the function calls)
-        self.update_rate: float = config.get("update_rate", 250.0)  # [Hz]
+        self.update_rate: float = config.get("update_rate", 300.0)  # [Hz]
 
 
 class MavlinkBackend(Backend):

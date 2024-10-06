@@ -51,7 +51,7 @@ from sensor_msgs.msg import Imu
 from builtin_interfaces.msg import Time
 from std_msgs.msg import Float32
 from rosgraph_msgs.msg import Clock
-
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 # lidar
 from omni.isaac.sensor import IMUSensor
 import omni
@@ -62,19 +62,56 @@ from omni.isaac.core.utils import nucleus, stage
 from pxr import Gf
 import math
 
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import StaticTransformBroadcaster
+
 class DroneLocationPublisher(Node):
     def __init__(self):
         super().__init__('drone_location_publisher')
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
         #self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        self.publisher_ = self.create_publisher(PoseStamped, 'drone0/gt_pose', 10)
-        self.rtf_publisher_ = self.create_publisher(Float32, 'real_Time_factor', 10)
+        self.publisher_ = self.create_publisher(PoseStamped, 'drone0/gt_pose', qos_profile)
+        self.rtf_publisher_ = self.create_publisher(Float32, 'real_Time_factor', qos_profile)
         #self.imu_publisher1_ = self.create_publisher(Imu, 'drone0/gt_imu1', 10)
-        self.imu_publisher_ = self.create_publisher(Imu, 'drone0/gt_imu', 10)
-        self.time_publisher = self.create_publisher(Clock, 'clock', 10)
+        self.imu_publisher_ = self.create_publisher(Imu, 'drone0/gt_imu', qos_profile)
+        self.time_publisher = self.create_publisher(Clock, 'clock', qos_profile)
         self.pre_pose_pos = None
         self.pre_pose_ori = None
         self.u = None
         #self.timer = self.create_timer(1.0, self.check_clock_topic)  # Check every 1 second
+        # Create a static transform broadcaster for lidar_link and base_link
+        self.lidar_trans = [0.0795, 0.0, 0.0323]
+        self.lidar_ori = [0.9238795, 0.0, 0.3826834, 0.0,]
+        lidar_frame_broadcaster = StaticTransformBroadcaster(self)
+        self.publish_static_transform('drone0/lidar_link','drone0/base_link',self.lidar_trans, self.lidar_ori, lidar_frame_broadcaster)
+        
+    def publish_static_transform(self, ch_frame, pr_frame, translation_xyz, orient_wxyz,broadcaster):
+        # Define the static transform
+        static_transform_stamped = TransformStamped()
+
+        static_transform_stamped.header.stamp = self.get_clock().now().to_msg()
+        static_transform_stamped.header.frame_id = pr_frame #'drone0/base_link'
+        static_transform_stamped.child_frame_id = ch_frame #'drone0/lidar_link'
+
+        # Set translation (in meters)
+        static_transform_stamped.transform.translation.x = translation_xyz[0]
+        static_transform_stamped.transform.translation.y = translation_xyz[1]
+        static_transform_stamped.transform.translation.z = translation_xyz[2]
+
+        # Set rotation (as a quaternion)
+        static_transform_stamped.transform.rotation.w = orient_wxyz[0]
+        static_transform_stamped.transform.rotation.x = orient_wxyz[1]
+        static_transform_stamped.transform.rotation.y = orient_wxyz[2]
+        static_transform_stamped.transform.rotation.z = orient_wxyz[3]
+
+        # Broadcast the static transform
+        broadcaster.sendTransform(static_transform_stamped)
+        #self.get_logger().info('Publishing static transform from drone0/base_link to drone0/lidar_link')
 
     def publish_location(self, position, orientation,sim_time):
         msg = PoseStamped()
@@ -243,6 +280,9 @@ class PegasusApp:
 
         # Acquire the World, .i.e, the singleton that controls that is a one stop shop for setting up physics,
         # spawning asset primitives, etc.
+        self.phy_dt = 300.0
+        self.pub_dt = 100.0 # HZ = 1/dt
+        self.pg._world_settings = {"physics_dt": 1.0 / self.phy_dt, "stage_units_in_meters": 1.0, "rendering_dt": 1.0 / 30.0}
         self.pg._world = World(**self.pg._world_settings)
         self.world = self.pg.world
 
@@ -269,7 +309,7 @@ class PegasusApp:
 
         self.drone = Multirotor(
             "/World/drone0",
-            ROBOTS['Iris'],
+            ROBOTS['Agipix v2'],
             0,
             [0.0, 0.0, 0.07],
             Rotation.from_euler("XYZ", [0.0, 0.0, 0.0], degrees=True).as_quat(),
@@ -281,13 +321,14 @@ class PegasusApp:
         self.stage = omni.usd.get_context().get_stage()
         self.drone_prim = self.stage.GetPrimAtPath("/World/drone0/body")
 
-        self.create_rtx_lidar()
-        self.create_imu_sensor()
+        
         # Initialize ROS 2
         rclpy.init()
 
         # Create ROS 2 publisher node
         self.node = DroneLocationPublisher()
+        self.create_rtx_lidar()
+        self.create_imu_sensor()
 
         # Initialize the Action Graph to publish drone odometry
         #self.init_action_graph()
@@ -297,15 +338,12 @@ class PegasusApp:
         self.sim_elapsed_time=None
         self.real_elapsed_time=None
         self.world.add_physics_callback("sim_step", callback_fn=self.physics_step)
+        self.physics_stp_cnt = 0
 
         #self.setup_post_load()
         
     async def setup_post_load(self):
-        pass
-
-        
-
-        # Auxiliar variable for the timeline callback example
+        pass    # Auxiliar variable for the timeline callback example
         
     
 
@@ -332,19 +370,19 @@ class PegasusApp:
             path="/sensor",
             parent=self.drone._stage_prefix + "/body",
             config="approx_mid_360",
-            translation=(0, 0, 1.0),
-            orientation=Gf.Quatd(1.0, 0.0, 0.0, 0.0),  # Gf.Quatd is w,i,j,k
+            translation=(self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2] ),
+            orientation=Gf.Quatd(self.node.lidar_ori[0] , self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),  # Gf.Quatd is w,i,j,k
         )
 
         # RTX sensors are cameras and must be assigned to their own render product
         hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
 
-        self.simulation_context = SimulationContext(physics_dt=1.0 / 250.0, rendering_dt=1.0 / 100.0, stage_units_in_meters=1.0)
+        self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / 30.0, stage_units_in_meters=1.0)
         simulation_app.update()
 
         # Create Point cloud publisher pipeline in the post process graph
         writer = rep.writers.get("RtxLidar" + "ROS2PublishPointCloud")
-        writer.initialize(topicName="point_cloud", frameId="drone0/base_link")
+        writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
         writer.attach([hydra_texture])
 
         # Create the debug draw pipeline in the post process graph
@@ -421,16 +459,22 @@ class PegasusApp:
     def physics_step(self, step_size):
         # publish clock
         current_sim_time = self.simulation_context.current_time
+        current_time = time.time()
         self.node.publish_clock(current_sim_time)
-        if self.sim_elapsed_time is None:
+        
+        if self.physics_stp_cnt:
+            # do something in between publishes
+            pass
+            
+        elif self.sim_elapsed_time is None:
             self.sim_elapsed_time = current_sim_time
-            self.real_elapsed_time = time.time()
+            self.real_elapsed_time = current_time
         else:
             self.sim_dt = current_sim_time - self.sim_elapsed_time
-            self.real_dt = time.time() - self.real_elapsed_time
+            self.real_dt = current_time - self.real_elapsed_time
             #print(self.sim_dt,self.real_dt)
             self.sim_elapsed_time = current_sim_time
-            self.real_elapsed_time = time.time()
+            self.real_elapsed_time = current_time
             self.node.publish_rtf(self.real_dt,self.sim_dt)
             
             position = self.drone_prim.GetAttribute('xformOp:translate')
@@ -442,6 +486,11 @@ class PegasusApp:
             #print(imu_frame)
             self.node.publish_self_imu(imu_frame)
             # publish own_imu
+            
+        if self.physics_stp_cnt >= self.phy_dt/self.pub_dt-1:
+            self.physics_stp_cnt = 0
+        else:
+            self.physics_stp_cnt += 1
         return
 
     def run(self):

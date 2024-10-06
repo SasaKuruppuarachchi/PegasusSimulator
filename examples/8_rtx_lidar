@@ -60,7 +60,7 @@ _, sensor = omni.kit.commands.execute(
 # RTX sensors are cameras and must be assigned to their own render product
 hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
 
-simulation_context = SimulationContext(physics_dt=1.0 / 60.0, rendering_dt=1.0 / 60.0, stage_units_in_meters=1.0)
+simulation_context = SimulationContext(physics_dt=1.0 / 300.0, rendering_dt=1.0 / 30.0, stage_units_in_meters=1.0)
 simulation_app.update()
 
 # Create Point cloud publisher pipeline in the post process graph

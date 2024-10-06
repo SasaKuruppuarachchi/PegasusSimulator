@@ -42,7 +42,7 @@ class IMU(Sensor):
         """
 
         # Initialize the Super class "object" attributes
-        super().__init__(sensor_type="IMU", update_rate=config.get("update_rate", 250.0))
+        super().__init__(sensor_type="IMU", update_rate=config.get("update_rate", 300.0))
 
         # Orientation noise constant
         self._orientation_noise: float = 0.0

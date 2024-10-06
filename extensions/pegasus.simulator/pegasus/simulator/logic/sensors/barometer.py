@@ -33,11 +33,11 @@ class Barometer(Sensor):
             >>>  "air_density_msl": 1.225,            # air density at MSL [kg/m^3]
             >>>  "absolute_zero": -273.15,            # [C]
             >>>  "drift_pa_per_sec": 0.0,             # Pa
-            >>>  "update_rate": 250.0}                # Hz
+            >>>  "update_rate": 300.0}                # Hz
         """
 
         # Initialize the Super class "object" attributes
-        super().__init__(sensor_type="Barometer", update_rate=config.get("update_rate", 250.0))
+        super().__init__(sensor_type="Barometer", update_rate=config.get("update_rate", 300.0))
 
         self._z_start: float = None
 
