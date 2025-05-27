@@ -13,13 +13,24 @@ Sensors
    sensors.imu
    sensors.magnetometer
 
+Graphical Sensors
+-----------------
+
+.. toctree::
+   :maxdepth: 2
+
+   graphical_sensors.graphical_sensor
+   graphical_sensors.monocular_camera
+   graphical_sensors.lidar
+
 Graphs
 ------
 
 .. toctree::
    :maxdepth: 2
 
-   graphs_api
+   graphs.graph
+   graphs.ros2_camera_graph
 
 Dynamics
 --------
@@ -45,7 +56,8 @@ Control Backends
    :maxdepth: 2
 
    backends.backend
-   backends.mavlink_backend
+   backends.px4_mavlink_backend
+   backends.ardupilot_mavlink_backend
    backends.ros2_backend
 
 Vehicle

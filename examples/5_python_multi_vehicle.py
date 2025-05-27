@@ -9,7 +9,7 @@ for the vehicle from scratch and use it to perform a simulation, without using P
 
 # Imports to start Isaac Sim from this script
 import carb
-from omni.isaac.kit import SimulationApp
+from isaacsim import SimulationApp
 
 # Start Isaac Sim's simulation environment
 # Note: this simulation app must be instantiated right after the SimulationApp import, otherwise the simulator will crash
@@ -23,7 +23,7 @@ import omni.timeline
 from omni.isaac.core.world import World
 
 # Used for adding extra lights to the environment
-import omni.isaac.core.utils.prims as prim_utils
+import isaacsim.core.utils.prims as prim_utils
 
 # Import the Pegasus API for simulating drones
 from pegasus.simulator.params import ROBOTS
@@ -31,14 +31,15 @@ from pegasus.simulator.logic.vehicles.multirotor import Multirotor, MultirotorCo
 from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 
 # Import the custom python control backend
-from utils.nonlinear_controller import NonlinearController
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)) + '/utils')
+from nonlinear_controller import NonlinearController
 
 # Auxiliary scipy and numpy modules
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-# Use os and pathlib for parsing the desired trajectory from a CSV file
-import os
+# Use pathlib for parsing the desired trajectory from a CSV file
 from pathlib import Path
 
 import random

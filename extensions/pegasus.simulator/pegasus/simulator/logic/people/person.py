@@ -18,7 +18,7 @@ import omni.anim.graph.core as ag
 from omni.anim.people import PeopleSettings
 from omni.isaac.core.utils import prims
 from omni.usd import get_stage_next_free_path
-from omni.isaac.core.utils.nucleus import get_assets_root_path
+from isaacsim.storage.native import get_assets_root_path
 
 # Extension APIs
 from pegasus.simulator.logic.state import State
@@ -53,7 +53,8 @@ class Person:
         character_name: str = None,
         init_pos=[0.0, 0.0, 0.0],
         init_yaw=0.0,
-        controller: PersonController=None
+        controller: PersonController=None,
+        backend=None
     ):
         """Initializes the person object
 
@@ -99,6 +100,11 @@ class Person:
         self._controller = controller
         if self._controller:
             self._controller.initialize(self)
+
+        # Set the backend for publishing the state of the person
+        self._backend = backend
+        if self._backend:
+            self._backend.initialize(self)
 
         # Add a callback to the physics engine to update the current state of the person
         self._world.add_physics_callback(self._stage_prefix + "/state", self.update_state)
@@ -182,6 +188,10 @@ class Person:
             self.character_graph.set_variable("Walk", 0.0)
             self.character_graph.set_variable("Action", "Idle")
 
+        # If we have a backend, update the state of the person
+        if self._backend:
+            self._backend.update(self._state, dt)
+
 
     def update_target_position(self, position, walk_speed=1.0):
         """
@@ -206,7 +216,7 @@ class Person:
         # Note: this is done to avoid the error of the character_graph being None. The animation graph is only created after the simulation starts
         if not self.character_graph or self.character_graph is None:
             self.character_graph = ag.get_character(self.character_skel_root_stage_path)
-
+            
         # Get the current position of the person
         pos = carb.Float3(0, 0, 0)
         rot = carb.Float4(0, 0, 0, 0)
