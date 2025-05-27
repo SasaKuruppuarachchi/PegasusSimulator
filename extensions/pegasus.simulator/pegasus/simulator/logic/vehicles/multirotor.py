@@ -97,6 +97,10 @@ class Multirotor(Vehicle):
         # Get the thrust curve of the vehicle from the configuration
         self._thrusters = config.thrust_curve
         self._drag = config.drag
+        
+        # for monitoring forces on the /body
+        self.forces = [0.0, 0.0, 0.0, 0.0]
+        self.rolling_moment = 0.0
 
         # 5. Save the backend interface (if given in the configuration of the multirotor)
         # and initialize them
@@ -175,6 +179,7 @@ class Multirotor(Vehicle):
 
         # Get the desired forces to apply to the vehicle
         forces_z, _, rolling_moment = self._thrusters.update(self._state, dt)
+        self.forces, self.rolling_moment = forces_z, rolling_moment
 
         # Apply force to each rotor
         for i in range(4):
@@ -212,10 +217,10 @@ class Multirotor(Vehicle):
 
         # Spinning when armed but not applying force
         if 0.0 < force < 0.1:
-            self._world.dc_interface.set_dof_velocity(joint, 5 * self._thrusters.rot_dir[rotor_number])
+            self._world.dc_interface.set_dof_velocity(joint, 5 * -self._thrusters.rot_dir[rotor_number])
         # Spinning when armed and applying force
         elif 0.1 <= force:
-            self._world.dc_interface.set_dof_velocity(joint, 100 * self._thrusters.rot_dir[rotor_number])
+            self._world.dc_interface.set_dof_velocity(joint, 100 * -self._thrusters.rot_dir[rotor_number])
         # Not spinning
         else:
             self._world.dc_interface.set_dof_velocity(joint, 0)

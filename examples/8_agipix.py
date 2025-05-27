@@ -28,13 +28,13 @@ disable_extension("omni.isaac.ros_bridge")
 enable_extension("omni.isaac.ros2_bridge")
 
 # Import the Pegasus API for simulating drones
-from pegasus.simulator.params import ROBOTS, SIMULATION_ENVIRONMENTS
+from pegasus.simulator.params import ROBOTS, SIMULATION_ENVIRONMENTS, FLAT_ENVIRONMENTS
 from pegasus.simulator.logic.state import State
 from pegasus.simulator.logic.backends.mavlink_backend import MavlinkBackend, MavlinkBackendConfig
 from pegasus.simulator.logic.vehicles.multirotor import Multirotor, MultirotorConfig
 from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 from pegasus.simulator.logic.graphs import ROS2Camera
-from rclpy.parameter import Parameter
+
 # Auxiliary scipy and numpy modules
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -45,13 +45,7 @@ from omni.isaac.core_nodes.scripts.utils import set_target_prims
 
 # ROS 2 imports
 import rclpy
-from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Imu
-from builtin_interfaces.msg import Time
-from std_msgs.msg import Float32
-from rosgraph_msgs.msg import Clock
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+from utils.drone_location_pub import DroneLocationPublisher
 # lidar
 from omni.isaac.sensor import IMUSensor
 import omni
@@ -60,208 +54,13 @@ import omni.replicator.core as rep
 from omni.isaac.core import SimulationContext
 from omni.isaac.core.utils import nucleus, stage
 from pxr import Gf
-import math
-
-from geometry_msgs.msg import TransformStamped
-from tf2_ros import StaticTransformBroadcaster
-
-class DroneLocationPublisher(Node):
-    def __init__(self):
-        super().__init__('drone_location_publisher')
-        qos_profile = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
-        #self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        self.publisher_ = self.create_publisher(PoseStamped, 'drone0/gt_pose', qos_profile)
-        self.rtf_publisher_ = self.create_publisher(Float32, 'real_Time_factor', qos_profile)
-        #self.imu_publisher1_ = self.create_publisher(Imu, 'drone0/gt_imu1', 10)
-        self.imu_publisher_ = self.create_publisher(Imu, 'drone0/gt_imu', qos_profile)
-        self.time_publisher = self.create_publisher(Clock, 'clock', qos_profile)
-        self.pre_pose_pos = None
-        self.pre_pose_ori = None
-        self.u = None
-        #self.timer = self.create_timer(1.0, self.check_clock_topic)  # Check every 1 second
-        # Create a static transform broadcaster for lidar_link and base_link
-        self.lidar_trans = [0.0795, 0.0, 0.0323]
-        self.lidar_ori = [0.9238795, 0.0, 0.3826834, 0.0,]
-        lidar_frame_broadcaster = StaticTransformBroadcaster(self)
-        self.publish_static_transform('drone0/lidar_link','drone0/base_link',self.lidar_trans, self.lidar_ori, lidar_frame_broadcaster)
-        
-    def publish_static_transform(self, ch_frame, pr_frame, translation_xyz, orient_wxyz,broadcaster):
-        # Define the static transform
-        static_transform_stamped = TransformStamped()
-
-        static_transform_stamped.header.stamp = self.get_clock().now().to_msg()
-        static_transform_stamped.header.frame_id = pr_frame #'drone0/base_link'
-        static_transform_stamped.child_frame_id = ch_frame #'drone0/lidar_link'
-
-        # Set translation (in meters)
-        static_transform_stamped.transform.translation.x = translation_xyz[0]
-        static_transform_stamped.transform.translation.y = translation_xyz[1]
-        static_transform_stamped.transform.translation.z = translation_xyz[2]
-
-        # Set rotation (as a quaternion)
-        static_transform_stamped.transform.rotation.w = orient_wxyz[0]
-        static_transform_stamped.transform.rotation.x = orient_wxyz[1]
-        static_transform_stamped.transform.rotation.y = orient_wxyz[2]
-        static_transform_stamped.transform.rotation.z = orient_wxyz[3]
-
-        # Broadcast the static transform
-        broadcaster.sendTransform(static_transform_stamped)
-        #self.get_logger().info('Publishing static transform from drone0/base_link to drone0/lidar_link')
-
-    def publish_location(self, position, orientation,sim_time):
-        msg = PoseStamped()
-        sim_time_ = Time()
-        sim_time_.sec = math.floor(sim_time)
-        sim_time_.nanosec = int((sim_time - sim_time_.sec) * 1e9)
-        msg.header.stamp = sim_time_ # self.get_clock().now().to_msg()
-        msg.header.frame_id = 'vicon_map'
-        msg.pose.position.x = position[0]
-        msg.pose.position.y = position[1]
-        msg.pose.position.z = position[2]
-        # Assuming orientation is an instance of Gf.Quatd
-        real_part = orientation.GetReal()
-        imaginary_part = orientation.GetImaginary()
-
-        msg.pose.orientation.w = real_part
-        msg.pose.orientation.x = imaginary_part[0]
-        msg.pose.orientation.y = imaginary_part[1]
-        msg.pose.orientation.z = imaginary_part[2]
-
-        self.publisher_.publish(msg)
-        
-    def quattovec(self,quatf):
-        vec = [] # x,y,z,w
-        real_part = quatf.GetReal()
-        imaginary_part = quatf.GetImaginary()
-
-        vec.append(imaginary_part[0])
-        vec.append(imaginary_part[1])
-        vec.append(imaginary_part[2])
-        vec.append(real_part)
-        return vec
-    def rotate_vector_by_quaternion(self,vector, quat):
-        # Convert the quaternion to a Rotation object
-        vector = np.array(vector)
-        r = Rotation.from_quat(quat)
-        
-        # Rotate the vector using the quaternion
-        rotated_vector = r.apply(vector)
-        
-        return rotated_vector
-    
-    def publish_clock(self, sim_time):
-        time_msg = Clock()
-        time_msg.clock.sec = math.floor(sim_time)
-        time_msg.clock.nanosec = int((sim_time - time_msg.clock.sec) * 1e9)
-        self.time_publisher.publish(time_msg)
-        
-    def publish_self_imu(self,self_imu):
-        msg = Imu()
-        sim_time_ = Time()
-        sim_time_.sec = math.floor(self_imu['time'])
-        sim_time_.nanosec = int((self_imu['time'] - sim_time_.sec) * 1e9)
-        msg.header.stamp = sim_time_
-        msg.header.frame_id = 'drone0/base_link'
-        
-        msg.linear_acceleration.x = float((self_imu['lin_acc'])[0])
-        msg.linear_acceleration.y = float((self_imu['lin_acc'])[1])
-        msg.linear_acceleration.z = float((self_imu['lin_acc'])[2])
-        
-        msg.orientation.w = float((self_imu['orientation'])[0])
-        msg.orientation.x = float((self_imu['orientation'])[1])
-        msg.orientation.y = float((self_imu['orientation'])[2])
-        msg.orientation.z = float((self_imu['orientation'])[3])
-        
-        msg.angular_velocity.x = float((self_imu['ang_vel'])[0])
-        msg.angular_velocity.y = float((self_imu['ang_vel'])[1])
-        msg.angular_velocity.z = float((self_imu['ang_vel'])[2])
-        
-        self.imu_publisher_.publish(msg)
-    
-    def publish_gt_imu(self, position, orientation, sim_time, dt):
-        if self.pre_pose_pos is None:
-            # First time initialization
-            self.pre_pose_pos = position
-            self.pre_pose_ori = self.quattovec(orientation)
-            return  # No IMU data to publish on first call
-
-        # Initialize velocity if not available yet
-        if self.u is None:
-            self.u = (position - self.pre_pose_pos) / dt
-            self.pre_pose_pos = position
-            self.pre_pose_ori = self.quattovec(orientation)
-            return
-
-        if dt:
-            msg = Imu()
-            # Prepare the timestamp
-            sim_time_ = Time()
-            sim_time_.sec = math.floor(sim_time)
-            sim_time_.nanosec = int((sim_time - sim_time_.sec) * 1e9)
-            msg.header.stamp = sim_time_
-            msg.header.frame_id = 'drone0/base_link'
-
-            # Calculate linear acceleration
-            new_velocity = (position - self.pre_pose_pos) / dt
-            lin_acc = (new_velocity - self.u) / dt - [0.0, 0.0, 9.822]  # Gravity compensation
-            lin_acc = self.rotate_vector_by_quaternion(lin_acc, self.quattovec(orientation))
-
-            msg.linear_acceleration.x = lin_acc[0]
-            msg.linear_acceleration.y = lin_acc[1]
-            msg.linear_acceleration.z = lin_acc[2]
-
-            # Compute angular velocity using quaternion derivatives
-            r_prev = Rotation.from_quat(self.pre_pose_ori)
-            r_next = Rotation.from_quat(self.quattovec(orientation))
-            r_rel = r_next * r_prev.inv()
-            angular_velocity = r_rel.as_rotvec() / dt
-
-            msg.angular_velocity.x = angular_velocity[0]
-            msg.angular_velocity.y = angular_velocity[1]
-            msg.angular_velocity.z = angular_velocity[2]
-
-            # Set orientation
-            q = orientation  # Assuming it's already a quaternion (w, x, y, z)
-            msg.orientation.w = q.GetReal()
-            msg.orientation.x = q.GetImaginary()[0]
-            msg.orientation.y = q.GetImaginary()[1]
-            msg.orientation.z = q.GetImaginary()[2]
-
-            # Publish the IMU message
-            self.imu_publisher1_.publish(msg)
-
-            # Update previous state for next iteration
-            self.u = new_velocity
-            self.pre_pose_pos = position
-            self.pre_pose_ori = self.quattovec(orientation)
 
 
-    def publish_rtf(self, real_dt, sim_dt):
-        msg= Float32()
-        if(real_dt):
-            msg.data = sim_dt/real_dt
-            self.rtf_publisher_.publish(msg)
-            
-    def check_clock_topic(self):
-        # Get the list of topics and types currently available
-        topics_and_types = self.get_topic_names_and_types()
+GRAVITY = 9.81
 
-        # Check if /clock topic is available
-        clock_topic_exists = any(topic == '/clock' for topic, _ in topics_and_types)
 
-        # Set use_sim_time to True if /clock topic is present, otherwise keep it False
-        if clock_topic_exists:
-            self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-            self.timer.cancel()
-        print("counter")
-        self.get_logger().info('/clock topic not available. use_sim_time remains False.')
 
-class PegasusApp:
+class AgipixApp:
     """
     A Template class that serves as an example on how to build a simple Isaac Sim standalone App.
     """
@@ -282,12 +81,14 @@ class PegasusApp:
         # spawning asset primitives, etc.
         self.phy_dt = 300.0
         self.pub_dt = 100.0 # HZ = 1/dt
-        self.pg._world_settings = {"physics_dt": 1.0 / self.phy_dt, "stage_units_in_meters": 1.0, "rendering_dt": 1.0 / 30.0}
+        self.rendering_dt = 30.0
+        self.pg._world_settings = {"physics_dt": 1.0 / self.phy_dt, "stage_units_in_meters": 1.0, "rendering_dt": 1.0 / self.rendering_dt}
         self.pg._world = World(**self.pg._world_settings)
         self.world = self.pg.world
 
         # Launch one of the worlds provided by NVIDIA
-        self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #
+        #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
 
         # Create the vehicle
         # Try to spawn the selected robot in the world to the specified namespace
@@ -305,7 +106,7 @@ class PegasusApp:
         # at the prim path `/World/quadrotor/body/Camera`. The camera prim path is the local path from the vehicle's prim path
         # to the camera prim, to which this graph will be connected. All ROS2 topics published by this graph will have 
         # namespace `quadrotor` and frame_id `Camera` followed by the selected camera types (`rgb`, `camera_info`).
-        config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info']})]
+        config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info'],"tf_frame_id": "camera"})]
 
         self.drone = Multirotor(
             "/World/drone0",
@@ -319,13 +120,11 @@ class PegasusApp:
         # Reset the simulation environment so that all articulations (aka robots) are initialized
         self.world.reset()
         self.stage = omni.usd.get_context().get_stage()
-        self.drone_prim = self.stage.GetPrimAtPath("/World/drone0/body")
+        self.drone_prim = self.stage.GetPrimAtPath(self.drone._stage_prefix + "/body")
 
         
         # Initialize ROS 2
         rclpy.init()
-
-        # Create ROS 2 publisher node
         self.node = DroneLocationPublisher()
         self.create_rtx_lidar()
         self.create_imu_sensor()
@@ -334,7 +133,6 @@ class PegasusApp:
         #self.init_action_graph()
         #self.init_pub_time_graph()
         self.stop_sim = False
-        
         self.sim_elapsed_time=None
         self.real_elapsed_time=None
         self.world.add_physics_callback("sim_step", callback_fn=self.physics_step)
@@ -345,11 +143,9 @@ class PegasusApp:
     async def setup_post_load(self):
         pass    # Auxiliar variable for the timeline callback example
         
-    
-
     def create_imu_sensor(self):
         self.isaac_imu = IMUSensor(
-            prim_path="/World/drone0/body/Imu",
+            prim_path=self.drone._stage_prefix + "/body" + "/Imu",
             name="imu",
             frequency=100,
             translation=np.array([0, 0, 0]),
@@ -377,7 +173,7 @@ class PegasusApp:
         # RTX sensors are cameras and must be assigned to their own render product
         hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
 
-        self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / 30.0, stage_units_in_meters=1.0)
+        self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / self.rendering_dt, stage_units_in_meters=1.0)
         simulation_app.update()
 
         # Create Point cloud publisher pipeline in the post process graph
@@ -456,7 +252,7 @@ class PegasusApp:
             },
         )
 
-    def physics_step(self, step_size):
+    def physics_step(self, dt: float):
         # publish clock
         current_sim_time = self.simulation_context.current_time
         current_time = time.time()
@@ -477,15 +273,22 @@ class PegasusApp:
             self.real_elapsed_time = current_time
             self.node.publish_rtf(self.real_dt,self.sim_dt)
             
-            position = self.drone_prim.GetAttribute('xformOp:translate')
-            orientation = self.drone_prim.GetAttribute('xformOp:orient')
-            self.node.publish_location(position.Get(), orientation.Get(),current_sim_time)
-            #self.node.publish_gt_imu(position.Get(), orientation.Get(),current_sim_time,self.sim_dt)
+            state = self.drone._state 
+            #position = self.drone_prim.GetAttribute('xformOp:translate')
+            #orientation = self.drone_prim.GetAttribute('xformOp:orient')
+            self.node.publish_gt(state,current_sim_time)
             
-            imu_frame = self.isaac_imu.get_current_frame()
-            #print(imu_frame)
-            self.node.publish_self_imu(imu_frame)
+            # publish gt_imu
+            self.node.publish_gt_imu(current_sim_time, state)
+            
+            # [prop_force0,..,prop_force3, sum_force (N),rolling moment (Nm)]
+            self.node.publish_gt_forces(self.drone.forces,self.drone.rolling_moment) 
+            # weight of the system 1.657 Kg . Total Thrust at hover = 16.256 N, Mass Normalised = 9.81 N/Kg
+            
             # publish own_imu
+            imu_frame = self.isaac_imu.get_current_frame()
+            self.node.publish_self_imu(imu_frame)
+            
             
         if self.physics_stp_cnt >= self.phy_dt/self.pub_dt-1:
             self.physics_stp_cnt = 0
@@ -506,14 +309,15 @@ class PegasusApp:
             simulation_app.update()
         
         # Cleanup and stop
-        carb.log_warn("PegasusApp Simulation App is closing.")
+        self.drone.stop()
+        carb.log_warn("Agipix Simulation App is closing.")
         self.simulation_context.stop()
         #self.timeline.stop()
         simulation_app.close()
 
 def main():
     # Instantiate the template app
-    pg_app = PegasusApp()
+    pg_app = AgipixApp()
 
     # Run the application loop
     pg_app.run()

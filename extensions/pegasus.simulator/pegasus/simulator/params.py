@@ -50,6 +50,12 @@ NVIDIA_SIMULATION_ENVIRONMENTS = {
     "Stairs Plane": "Terrains/stairs.usd",
 }
 
+FLAT_ENVIRONMENTS = {
+    "Full Warehouse": "/home/sasa/workspace/isaac_envs/warehouse_flt.usd",
+    "Hospital": "/home/sasa/workspace/isaac_envs/hospital.usd",
+    "Office": "/home/sasa/workspace/isaac_envs/office_flt.usd",
+}
+
 OMNIVERSE_ENVIRONMENTS = {
     "Exhibition Hall": "omniverse://localhost/NVIDIA/Assets/Scenes/Templates/Interior/ZetCG_ExhibitionHall.usd"
 }

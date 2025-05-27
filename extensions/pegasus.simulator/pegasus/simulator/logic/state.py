@@ -84,6 +84,16 @@ class State:
 
         # Convert the linear acceleration in the body frame expressed in FLU convention to the FRD convention
         return rot_FLU_to_FRD.apply(linear_acc_body_flu)
+    
+    def get_linear_body_velocity_ned_flu(self):
+        """
+        Method that, assuming that a state is encoded in ENU-FLU standard (the Isaac Sim standard)
+        """
+
+        # Get the linear acceleration in FLU convention
+        linear_acc_body_flu = Rotation.from_quat(self.attitude).inv().apply(self.linear_acceleration)
+
+        return Rotation.from_quat(self.attitude).inv().apply(self.linear_acceleration)
 
     def get_linear_velocity_ned(self):
         """
@@ -106,6 +116,17 @@ class State:
             np.ndarray: A numpy array with [p,q,r] with the angular velocity of the vehicle's FRD body frame, relative to an NED inertial frame, expressed in the FRD body frame.
         """
         return rot_FLU_to_FRD.apply(self.angular_velocity)
+    
+    def get_angular_velocity_flu(self):
+        """
+        Method that, assuming that a state is enconded in ENU-FLU standard (the Isaac Sim standard), converts the
+        angular velocity expressed in the body frame to the NED-FRD convention used by PX4 and other onboard flight
+        controllers
+
+        Returns:
+            np.ndarray: A numpy array with [p,q,r] with the angular velocity of the vehicle's FRD body frame, relative to an NED inertial frame, expressed in the FRD body frame.
+        """
+        return self.angular_velocity
 
     def get_linear_acceleration_ned(self):
         """

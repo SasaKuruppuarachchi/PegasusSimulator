@@ -49,7 +49,7 @@ class ROS2Camera(Graph):
 
         # Process the config dictionary
         self._graph_evaluator = config.get("graph_evaluator", "execution")
-        self._resolution = config.get("resolution", [640, 480])
+        self._resolution = config.get("resolution", [640, 360])
         self._types = np.array(config.get("types", ['rgb', 'camera_info']))
         self._publish_labels = config.get("publish_labels", True)
 
