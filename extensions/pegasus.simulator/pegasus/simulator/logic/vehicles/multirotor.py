@@ -161,10 +161,10 @@ class Multirotor(Vehicle):
 
         # Spinning when armed but not applying force
         if 0.0 < force < 0.1:
-            self._world.dc_interface.set_dof_velocity(joint, 5 * -self._thrusters.rot_dir[rotor_number])
+            self.get_dc_interface().set_dof_velocity(joint, 5 * -self._thrusters.rot_dir[rotor_number])
         # Spinning when armed and applying force
         elif 0.1 <= force:
-            self._world.dc_interface.set_dof_velocity(joint, 100 * -self._thrusters.rot_dir[rotor_number])
+            self.get_dc_interface().set_dof_velocity(joint, 100 * -self._thrusters.rot_dir[rotor_number])
         # Not spinning
         else:
             self.get_dc_interface().set_dof_velocity(joint, 0)
