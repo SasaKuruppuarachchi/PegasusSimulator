@@ -143,7 +143,8 @@ class Multirotor(Vehicle):
 
         # Call the update methods in all backends
         for backend in self._backends:
-            backend.update(dt)
+            if backend is not None:
+                backend.update(dt)
 
     def handle_propeller_visual(self, rotor_number, force: float, articulation):
         """

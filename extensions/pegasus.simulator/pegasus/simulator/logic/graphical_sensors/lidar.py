@@ -13,7 +13,7 @@ from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 # Imports the python bindings to interact with lidar sensor
 import omni.kit.commands
 from pxr import Gf, UsdGeom
-from omni.isaac.range_sensor import _range_sensor      
+from isaacsim.sensors.physx import _range_sensor      
 from omni.usd import get_stage_next_free_path
 
 # Auxiliary scipy and numpy modules

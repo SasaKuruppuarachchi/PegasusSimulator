@@ -569,6 +569,9 @@ class PX4MavlinkBackend(Backend):
         """
 
         carb.log_warn("Waiting for first hearbeat")
+        if self._connection is None:
+            carb.log_error("Mavlink waiting for connection")
+            return
         result = self._connection.wait_heartbeat(blocking=False)
 
         if result is not None:

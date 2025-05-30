@@ -10,7 +10,7 @@ from pegasus.simulator.logic.state import State
 from pegasus.simulator.logic.graphical_sensors import GraphicalSensor
 from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 
-from omni.isaac.sensor import Camera
+from isaacsim.sensors.camera import Camera
 from omni.usd import get_stage_next_free_path
 
 # Auxiliary scipy and numpy modules

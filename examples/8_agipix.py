@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 """
 | File: 8_camera_vehicle.py
-| License: BSD-3-Clause. Copyright (c) 2023, Marcelo Jacinto and Filip Stec. All rights reserved.
-| Description: This files serves as an example on how to build an app that makes use of the Pegasus API to run a simulation
-with a single vehicle equipped with a camera, producing rgb and camera info ROS2 topics.
+| License: BSD-3-Clause. Copyright (c) 2024, Marcelo Jacinto. All rights reserved.
+| Description: This files serves as an example on how to build an app that makes use of the Pegasus API, 
+| where the data is send/received through mavlink, the vehicle is controled using mavlink and
+| camera data is sent to ROS2 topics at the same time.
 """
 
 # Imports to start Isaac Sim from this script
 import carb
-from omni.isaac.kit import SimulationApp
+from isaacsim import SimulationApp
 import time
 
 # Start Isaac Sim's simulation environment
@@ -20,20 +21,24 @@ simulation_app = SimulationApp({"headless": False})
 # The actual script should start here
 # -----------------------------------
 import omni.timeline
-from omni.isaac.core.world import World
-from omni.isaac.core.utils.extensions import disable_extension, enable_extension
+from isaacsim.core.api.world import World
+from isaacsim.core.utils.extensions import disable_extension, enable_extension
 
 # Enable/disable ROS bridge extensions to keep only ROS2 Bridge
-disable_extension("omni.isaac.ros_bridge")
-enable_extension("omni.isaac.ros2_bridge")
+disable_extension("isaacsim.ros2.bridge")
+enable_extension("isaacsim.ros2.bridge")
 
 # Import the Pegasus API for simulating drones
 from pegasus.simulator.params import ROBOTS, SIMULATION_ENVIRONMENTS, FLAT_ENVIRONMENTS
-from pegasus.simulator.logic.state import State
-from pegasus.simulator.logic.backends.mavlink_backend import MavlinkBackend, MavlinkBackendConfig
+#from pegasus.simulator.logic.state import State
+from pegasus.simulator.logic.graphical_sensors.monocular_camera import MonocularCamera
+#from pegasus.simulator.logic.graphical_sensors.lidar import Lidar
+from pegasus.simulator.logic.backends.px4_mavlink_backend import PX4MavlinkBackend, PX4MavlinkBackendConfig
+from pegasus.simulator.logic.backends.ros2_backend import ROS2Backend
 from pegasus.simulator.logic.vehicles.multirotor import Multirotor, MultirotorConfig
 from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
-from pegasus.simulator.logic.graphs import ROS2Camera
+#from pegasus.simulator.logic.graphs import ROS2Camera
+
 
 # Auxiliary scipy and numpy modules
 import numpy as np
@@ -41,18 +46,25 @@ from scipy.spatial.transform import Rotation
 
 # Import Isaac Sim Action Graph components
 import omni.graph.core as og
-from omni.isaac.core_nodes.scripts.utils import set_target_prims
+from isaacsim.core.nodes.scripts.utils import set_target_prims
 
 # ROS 2 imports
 import rclpy
-from utils.drone_location_pub import DroneLocationPublisher
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
+sys.path.append(os.path.dirname(__file__))  # Also add current dir for sibling imports
+
+from drone_location_pub import DroneLocationPublisher
 # lidar
-from omni.isaac.sensor import IMUSensor
+from isaacsim.sensors.rtx import LidarRtx
+from isaacsim.sensors.physics import IMUSensor
 import omni
 import omni.kit.viewport.utility
 import omni.replicator.core as rep
-from omni.isaac.core import SimulationContext
-from omni.isaac.core.utils import nucleus, stage
+from isaacsim.core.api import SimulationContext
+from isaacsim.core.utils.stage import create_new_stage_async, update_stage_async
+import isaacsim.storage.native as nucleus
 from pxr import Gf
 
 
@@ -79,7 +91,7 @@ class AgipixApp:
 
         # Acquire the World, .i.e, the singleton that controls that is a one stop shop for setting up physics,
         # spawning asset primitives, etc.
-        self.phy_dt = 300.0
+        self.phy_dt = 250.0
         self.pub_dt = 100.0 # HZ = 1/dt
         self.rendering_dt = 30.0
         self.pg._world_settings = {"physics_dt": 1.0 / self.phy_dt, "stage_units_in_meters": 1.0, "rendering_dt": 1.0 / self.rendering_dt}
@@ -87,26 +99,62 @@ class AgipixApp:
         self.world = self.pg.world
 
         # Launch one of the worlds provided by NVIDIA
-        self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #
         #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        
+        from isaacsim.core.api.objects import DynamicCuboid
+        # cube_2 = self.world.scene.add(
+        #     DynamicCuboid(
+        #         prim_path="/new_cube_2",
+        #         name="cube_1",
+        #         position=np.array([-3.0, 0, 2.0]),
+        #         scale=np.array([1.0, 1.0, 1.0]),
+        #         size=1.0,
+        #         color=np.array([255, 0, 0]),
+        #     )
+        # )
 
         # Create the vehicle
         # Try to spawn the selected robot in the world to the specified namespace
         config_multirotor = MultirotorConfig()
         # Create the multirotor configuration
-        mavlink_config = MavlinkBackendConfig({
+        mavlink_config = PX4MavlinkBackendConfig({
             "vehicle_id": 0,
             "px4_autolaunch": True,
             "px4_dir": self.pg.px4_path,
             "px4_vehicle_model": self.pg.px4_default_airframe
         })
-        config_multirotor.backends = [MavlinkBackend(mavlink_config)]
+        config_multirotor.backends = [
+            PX4MavlinkBackend(mavlink_config), 
+            ROS2Backend(vehicle_id=1, 
+                        config={
+                            "namespace": 'drone', 
+                            "pub_sensors": False,
+                            "pub_graphical_sensors": True,
+                            "pub_state": True,
+                            "sub_control": False,})]
+
 
         # Create camera graph for the existing Camera prim on the Iris model, which can be found 
         # at the prim path `/World/quadrotor/body/Camera`. The camera prim path is the local path from the vehicle's prim path
         # to the camera prim, to which this graph will be connected. All ROS2 topics published by this graph will have 
         # namespace `quadrotor` and frame_id `Camera` followed by the selected camera types (`rgb`, `camera_info`).
-        config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info'],"tf_frame_id": "camera"})]
+        # config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info'],"tf_frame_id": "camera"})]
+        config_multirotor.graphical_sensors = [
+            MonocularCamera(
+                "Camera",
+                config={
+                    "depth": True,
+                    "position": np.array([0.30, 0.0, 0.0]),
+                    "orientation": np.array([180.0, -180.0, 0.0]),
+                    "resolution": (1920, 1200),
+                    "frequency": 30,
+                    "intrinsics": np.array([[958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]]),
+                    "distortion_coefficients": np.array([0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017]),
+                    "diagonal_fov": 180.0
+                }
+            )
+        ]
 
         self.drone = Multirotor(
             "/World/drone0",
@@ -124,10 +172,14 @@ class AgipixApp:
 
         
         # Initialize ROS 2
-        rclpy.init()
+        #rclpy.init()
         self.node = DroneLocationPublisher()
-        self.create_rtx_lidar()
-        self.create_imu_sensor()
+        
+        self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / self.rendering_dt, stage_units_in_meters=1.0)
+        simulation_app.update()
+        
+        self.setup_sensors()
+        
 
         # Initialize the Action Graph to publish drone odometry
         #self.init_action_graph()
@@ -139,6 +191,28 @@ class AgipixApp:
         self.physics_stp_cnt = 0
 
         #self.setup_post_load()
+    
+    def setup_sensors(self):
+        """
+        Method that is called after the stage is loaded, to setup the post load actions.
+        This method is used to setup the action graph and the ROS 2 bridge.
+        """
+        if False:
+            lidar = self.create_rtx_lidar(self.drone._stage_prefix + "/body" + "/sensor",
+                                self.node.lidar_trans,
+                                self.node.lidar_ori,
+                                "approx_mid_360")
+            simulation_app.update()
+            # RTX sensors are cameras and must be assigned to their own render product
+            hydra_texture = rep.create.render_product(lidar.prim_path, [1, 1], name="Isaac")
+            # Create Point cloud publisher pipeline in the post process graph
+            writer = rep.writers.get("RtxLidar" + "ROS2PublishPointCloud")
+            writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
+            writer.attach([hydra_texture])
+            simulation_app.update()
+        else:
+            self.create_rtx_lidar_old()
+        self.create_imu_sensor()
         
     async def setup_post_load(self):
         pass    # Auxiliar variable for the timeline callback example
@@ -155,7 +229,38 @@ class AgipixApp:
             orientation_filter_size = 10,
         )
         
-    def create_rtx_lidar(self):
+    def create_rtx_lidar( self,
+        prim_path="/sensor",
+        position=[0.0, 0.0, 0.0],
+        orientation=[0.0, 0.0, 0.0, 1.0],
+        config_file_name="Example_Rotary",
+    ):
+        """Create RTX lidar in scene. Add annotators for point cloud and flatscan data.
+
+        Args:
+            prim_path (str, optional): Prim path of sensor. Defaults to "/sensor".
+            position (list, optional): Position of sensor in scene units. Defaults to [0.0, 0.0, 0.0].
+            orientation (list, optional): Euler angles specifying sensor orientation. Defaults to [0.0, 0.0, 0.0].
+            config_file_name (str, optional): Name of sensor config file. Defaults to "Example_Rotary".
+        """
+        sensor = LidarRtx(
+            prim_path=prim_path,
+            position=np.array(position),
+            orientation=np.array(orientation),
+            config_file_name=config_file_name,
+        )
+        sensor.initialize()
+        sensor.add_range_data_to_frame()
+        sensor.add_elevation_data_to_frame()
+        sensor.add_azimuth_data_to_frame()
+        sensor.add_linear_depth_data_to_frame()
+        sensor.add_azimuth_range_to_frame()
+        sensor.add_horizontal_resolution_to_frame()
+        return sensor
+        
+        
+        
+    def create_rtx_lidar_old(self):
         # Create the lidar sensor that generates data into "RtxSensorCpu"
         # Sensor needs to be rotated 90 degrees about X so that its Z up
 
@@ -201,10 +306,10 @@ class AgipixApp:
             {
                 keys.CREATE_NODES: [
                     ("tick", "omni.graph.action.OnTick"),
-                    ("read_times", "omni.isaac.core_nodes.IsaacReadTimes"),
-                    ("compute_odometry", "omni.isaac.core_nodes.IsaacComputeOdometry"),
-                    ("publish_clock", "omni.isaac.ros2_bridge.ROS2PublishClock"),
-                    ("publish_odometry", "omni.isaac.ros2_bridge.ROS2PublishOdometry")
+                    ("read_times", "isaacsim.core.nodes.IsaacReadTimes"),
+                    ("compute_odometry", "isaacsim.core.nodes.IsaacComputeOdometry"),
+                    ("publish_clock", "isaacsim.ros2.bridge.ROS2PublishClock"),
+                    ("publish_odometry", "isaacsim.ros2.bridge.ROS2PublishOdometry")
                 ],
                 keys.SET_VALUES: [
                     ("compute_odometry.inputs:chassisPrim", "/World/drone0"),
@@ -237,8 +342,8 @@ class AgipixApp:
             {
                 keys.CREATE_NODES: [
                     ("tick", "omni.graph.action.OnTick"),
-                    ("read_times", "omni.isaac.core_nodes.IsaacReadTimes"),
-                    ("publish_clock", "omni.isaac.ros2_bridge.ROS2PublishClock"),
+                    ("read_times", "isaacsim.core.nodes.IsaacReadTimes"),
+                    ("publish_clock", "isaacsim.ros2.bridge.ROS2PublishClock"),
                     
                 ],
                 keys.SET_VALUES: [

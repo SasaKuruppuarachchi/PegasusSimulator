@@ -19,7 +19,7 @@ simulation_app = SimulationApp({"headless": False})
 # The actual script should start here
 # -----------------------------------
 import omni.timeline
-from omni.isaac.core.world import World
+from isaacsim.core.api.world import World
 from isaacsim.core.utils.extensions import disable_extension, enable_extension
 
 EXTENSIONS_PEOPLE = [
@@ -42,7 +42,7 @@ for ext_people in EXTENSIONS_PEOPLE:
 
 # Enable/disable ROS bridge extensions to keep only ROS2 Bridge
 disable_extension("omni.isaac.ros_bridge")
-enable_extension("omni.isaac.ros2_bridge")
+enable_extension("isaacsim.ros2.bridge")
 
 # Update the simulation app with the new extensions
 simulation_app.update()

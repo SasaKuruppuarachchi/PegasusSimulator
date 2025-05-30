@@ -45,7 +45,7 @@ methods currently provided, please refer to the :ref:`API Reference` section.
    i) they are not meant for public use; ii) under development (untested); iii) or just deprecated and about to be replaced.
 
 Next, we initialize the :class:`PegasusInterface` object. This is a singleton, which means that there exists only one 
-:class:`PegasusInterface` in memory at any time. This interface creates a `World <https://docs.omniverse.nvidia.com/py/isaacsim/source/extensions/omni.isaac.core/docs/index.html?highlight=world#omni.isaac.core.world.World>`__ class environment. The `World <https://docs.omniverse.nvidia.com/py/isaacsim/source/extensions/omni.isaac.core/docs/index.html?highlight=world#omni.isaac.core.world.World>`__  class inherits the `Simulation Context <https://docs.omniverse.nvidia.com/py/isaacsim/source/extensions/omni.isaac.core/docs/index.html#module-omni.isaac.core.simulation_context>`__
+:class:`PegasusInterface` in memory at any time. This interface creates a `World <https://docs.omniverse.nvidia.com/py/isaacsim/source/extensions/isaacsim.core.api/docs/index.html?highlight=world#isaacsim.core.api.world.world>`__ class environment. The `World <https://docs.omniverse.nvidia.com/py/isaacsim/source/extensions/isaacsim.core.api/docs/index.html?highlight=world#isaacsim.core.api.world.world>`__  class inherits the `Simulation Context <https://docs.omniverse.nvidia.com/py/isaacsim/source/extensions/isaacsim.core.api/docs/index.html#module-isaacsim.core.api.simulation_context>`__
 internally, so you do not need to declare your own manually when using this API. By default, when physics engine is set to run
 at ``250 Hz`` and the render engine at ``60Hz``.
 

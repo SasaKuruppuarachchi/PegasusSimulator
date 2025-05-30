@@ -88,7 +88,7 @@ open a new terminal window (**Ctrl+Alt+T**), and test the following commands:
         ISAACSIM_PYTHON -c "print('Hello World.')"
 
         # Run the python interpreter and check if we can run a script that starts the simulator and adds cubes to the world
-        ISAACSIM_PYTHON ${ISAACSIM_PATH}/standalone_examples/api/omni.isaac.core/add_cubes.py
+        ISAACSIM_PYTHON ${ISAACSIM_PATH}/standalone_examples/api/isaacsim.core.api/add_cubes.py
 
 If you were unable to run the commands above successfuly, then something is incorrectly configured. 
 Please do not proceed with this installation until you have everything setup correctly.
