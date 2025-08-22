@@ -43,7 +43,7 @@ from scipy.spatial.transform import Rotation
 from pathlib import Path
 
 import random
-from omni.isaac.debug_draw import _debug_draw
+from isaacsim.debug_draw import _debug_draw
 
 
 class PegasusApp:

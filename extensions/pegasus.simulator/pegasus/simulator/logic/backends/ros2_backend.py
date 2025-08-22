@@ -395,7 +395,9 @@ class ROS2Backend(Backend):
     def add_monocular_camera_writter(self, data):
 
         # List all the available writers: print(rep.writers.WriterRegistry._writers)
-        render_prod_path = data["camera"]._render_product_path
+        camera = data["camera"]
+        freq = data["frequency"]
+        render_prod_path = camera._render_product_path
 
         # Create the writer for the rgb camera
         writer = rep.writers.get("LdrColorSDROS2PublishImage")
@@ -417,21 +419,27 @@ class ROS2Backend(Backend):
             self.graphical_sensors_writers[data["camera_name"]].append(writer_depth)
 
         # Create a writer for publishing the camera info
+        step_size = int(60/freq)
+        topic_name = camera.name+"_camera_info"
+        queue_size = 1
+        node_namespace = ""
+        frame_id = camera.prim_path.split("/")[-1] # This matches what the TF tree is publishing.
+
         writer_info = rep.writers.get("ROS2PublishCameraInfo")
-        camera_info = read_camera_info(render_product_path=render_prod_path)
+        camera_info, _ = read_camera_info(render_product_path=render_prod_path)
         writer_info.initialize(
-            nodeNamespace=self._namespace + str(self._id), 
-            topicName=data["camera_name"] + "/color/camera_info", 
-            frameId=data["camera_name"], 
-            queueSize=1,
-            width=camera_info["width"],
-            height=camera_info["height"],
-            projectionType=camera_info["projectionType"],
-            k=camera_info["k"].reshape([1, 9]),
-            r=camera_info["r"].reshape([1, 9]),
-            p=camera_info["p"].reshape([1, 12]),
-            physicalDistortionModel=camera_info["physicalDistortionModel"],
-            physicalDistortionCoefficients=camera_info["physicalDistortionCoefficients"]
+            frameId=frame_id,
+            nodeNamespace=node_namespace,
+            queueSize=queue_size,
+            topicName=topic_name,
+            width=camera_info.width,
+            height=camera_info.height,
+            projectionType=camera_info.distortion_model,
+            k=camera_info.k.reshape([1, 9]),
+            r=camera_info.r.reshape([1, 9]),
+            p=camera_info.p.reshape([1, 12]),
+            physicalDistortionModel=camera_info.distortion_model,
+            physicalDistortionCoefficients=camera_info.d,
         )
 
         writer_info.attach([render_prod_path])
@@ -442,7 +450,7 @@ class ROS2Backend(Backend):
         gate_path = omni.syntheticdata.SyntheticData._get_node_path("PostProcessDispatch" + "IsaacSimulationGate", render_prod_path)
 
         # Set step input of the Isaac Simulation Gate nodes upstream of ROS publishers to control their execution rate
-        og.Controller.attribute(gate_path + ".inputs:step").set(int(60/data["frequency"]))
+        og.Controller.attribute(gate_path + ".inputs:step").set(step_size)
 
     def update_lidar_data(self, data):
 

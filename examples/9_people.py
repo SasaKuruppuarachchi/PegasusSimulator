@@ -41,7 +41,7 @@ for ext_people in EXTENSIONS_PEOPLE:
     enable_extension(ext_people)
 
 # Enable/disable ROS bridge extensions to keep only ROS2 Bridge
-disable_extension("omni.isaac.ros_bridge")
+disable_extension("isaacsim.ros_bridge")
 enable_extension("isaacsim.ros2.bridge")
 
 # Update the simulation app with the new extensions

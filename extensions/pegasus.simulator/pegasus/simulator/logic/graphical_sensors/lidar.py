@@ -29,7 +29,7 @@ class Lidar(GraphicalSensor):
         """
         Initialize the Lidar class
 
-        The available configurations for the lidar are available in the folder exts/omni.isaac.sensor/data/lidar_configs
+        The available configurations for the lidar are available in the folder exts/isaacsim.sensor/data/lidar_configs
         Check also the official documentation:
         https://docs.omniverse.nvidia.com/isaacsim/latest/features/sensors_simulation/isaac_sim_sensors_rtx_based_lidar.html
         """

@@ -1,6 +1,6 @@
 [package]
 # Semantic Versioning is used: https://semver.org/
-version = "4.5.0"
+version = "5.0.0"
 
 # Lists people or organizations that are considered the "authors" of the package.
 authors = ["Marcelo Jacinto"]
@@ -39,7 +39,7 @@ icon = "data/icon.png"
 "omni.kit.uiapp" = {}
 "isaacsim.core.api" = {}
 "omni.ui.scene" = {}
-"omni.kit.window.viewport" = {}
+#"omni.kit.window.viewport" = {}
 "omni.anim.people" = {}
 "omni.anim.timeline" = {}
 "omni.anim.graph.bundle" = {}

@@ -99,8 +99,8 @@ class AgipixApp:
         self.world = self.pg.world
 
         # Launch one of the worlds provided by NVIDIA
-        #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        #self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
         
         from isaacsim.core.api.objects import DynamicCuboid
         # cube_2 = self.world.scene.add(
@@ -145,13 +145,18 @@ class AgipixApp:
                 "Camera",
                 config={
                     "depth": True,
+                    "pixel_size": 3,
+                    "f_stop": 1.8,
+                    "focus_distance": 15,
                     "position": np.array([0.30, 0.0, 0.0]),
                     "orientation": np.array([180.0, -180.0, 0.0]),
                     "resolution": (1920, 1200),
                     "frequency": 30,
-                    "intrinsics": np.array([[958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]]),
-                    "distortion_coefficients": np.array([0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017]),
-                    "diagonal_fov": 180.0
+                    "intrinsics": np.array([
+                        [958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]
+                    ]),
+                    "distortion_coefficients": np.array([0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017]),  # adjust if you have real values
+                    "diagonal_fov": 140.0
                 }
             )
         ]
@@ -197,21 +202,9 @@ class AgipixApp:
         Method that is called after the stage is loaded, to setup the post load actions.
         This method is used to setup the action graph and the ROS 2 bridge.
         """
-        if False:
-            lidar = self.create_rtx_lidar(self.drone._stage_prefix + "/body" + "/sensor",
-                                self.node.lidar_trans,
-                                self.node.lidar_ori,
-                                "approx_mid_360")
-            simulation_app.update()
-            # RTX sensors are cameras and must be assigned to their own render product
-            hydra_texture = rep.create.render_product(lidar.prim_path, [1, 1], name="Isaac")
-            # Create Point cloud publisher pipeline in the post process graph
-            writer = rep.writers.get("RtxLidar" + "ROS2PublishPointCloud")
-            writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
-            writer.attach([hydra_texture])
-            simulation_app.update()
-        else:
-            self.create_rtx_lidar_old()
+        
+        self.create_rtx_lidar()
+        print("RTX Lidar created")
         self.create_imu_sensor()
         
     async def setup_post_load(self):
@@ -229,72 +222,51 @@ class AgipixApp:
             orientation_filter_size = 10,
         )
         
-    def create_rtx_lidar( self,
-        prim_path="/sensor",
-        position=[0.0, 0.0, 0.0],
-        orientation=[0.0, 0.0, 0.0, 1.0],
-        config_file_name="Example_Rotary",
-    ):
-        """Create RTX lidar in scene. Add annotators for point cloud and flatscan data.
-
-        Args:
-            prim_path (str, optional): Prim path of sensor. Defaults to "/sensor".
-            position (list, optional): Position of sensor in scene units. Defaults to [0.0, 0.0, 0.0].
-            orientation (list, optional): Euler angles specifying sensor orientation. Defaults to [0.0, 0.0, 0.0].
-            config_file_name (str, optional): Name of sensor config file. Defaults to "Example_Rotary".
-        """
-        sensor = LidarRtx(
-            prim_path=prim_path,
-            position=np.array(position),
-            orientation=np.array(orientation),
-            config_file_name=config_file_name,
-        )
-        sensor.initialize()
-        sensor.add_range_data_to_frame()
-        sensor.add_elevation_data_to_frame()
-        sensor.add_azimuth_data_to_frame()
-        sensor.add_linear_depth_data_to_frame()
-        sensor.add_azimuth_range_to_frame()
-        sensor.add_horizontal_resolution_to_frame()
-        return sensor
         
         
         
-    def create_rtx_lidar_old(self):
+    def create_rtx_lidar(self):
         # Create the lidar sensor that generates data into "RtxSensorCpu"
         # Sensor needs to be rotated 90 degrees about X so that its Z up
 
         # Possible options are Example_Rotary and Example_Solid_State
         # drive sim applies 0.5,-0.5,-0.5,w(-0.5), we have to apply the reverse
+        # sensor_attributes = {'omni:sensor:Core:scanRateBaseHz': 10}
+        # sensor = LidarRtx(
+        #     prim_path=self.drone._stage_prefix + "/body"+"/sensor",
+        #     #parent=self.drone._stage_prefix + "/body",
+        #     config_file_name="Example_Rotary",
+        #     translation=np.array([self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2] ]),
+        #     orientation=np.array([self.node.lidar_ori[0] , self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]]),  # Gf.Quatd is w,i,j,k
+        #     **sensor_attributes,
+        # )
+        
         _, sensor = omni.kit.commands.execute(
             "IsaacSensorCreateRtxLidar",
             path="/sensor",
             parent=self.drone._stage_prefix + "/body",
-            config="approx_mid_360",
-            translation=(self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2] ),
+            config="Mid_360",
+            translation=(self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2]),
             orientation=Gf.Quatd(self.node.lidar_ori[0] , self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),  # Gf.Quatd is w,i,j,k
+            force_camera_prim=False
         )
 
         # RTX sensors are cameras and must be assigned to their own render product
         hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
-
-        self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / self.rendering_dt, stage_units_in_meters=1.0)
+        # Avoid creating a second SimulationContext in Isaac Sim 5.0.
         simulation_app.update()
 
         # Create Point cloud publisher pipeline in the post process graph
-        writer = rep.writers.get("RtxLidar" + "ROS2PublishPointCloud")
+        writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
         writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
         writer.attach([hydra_texture])
 
-        # Create the debug draw pipeline in the post process graph
-        #writer = rep.writers.get("RtxLidar" + "DebugDrawPointCloud")
-        #writer.attach([hydra_texture])
-
-
-        # Create LaserScan publisher pipeline in the post process graph
-        #writer = rep.writers.get("RtxLidar" + "ROS2PublishLaserScan")
-        #writer.initialize(topicName="laser_scan", frameId="drone0/base_link")
-        #writer.attach([hydra_texture])
+        # Optionally add debug draw or laser scan publishers if needed
+        # debug_writer = rep.writers.get("RtxLidarDebugDrawPointCloud")
+        # debug_writer.attach([hydra_texture])
+        # scan_writer = rep.writers.get("RtxLidarROS2PublishLaserScan")
+        # scan_writer.initialize(topicName="laser_scan", frameId="drone0/base_link")
+        # scan_writer.attach([hydra_texture])
 
         simulation_app.update()
 
