@@ -54,6 +54,7 @@ FLAT_ENVIRONMENTS = {
     "Full Warehouse": "/home/sasa/workspace/isaac_envs/warehouse_flt.usd",
     "Hospital": "/home/sasa/workspace/isaac_envs/hospital.usd",
     "Office": "/home/sasa/workspace/isaac_envs/office_flt.usd",
+    "AKW": "/home/sasa/workspace/isaac_envs/akw_flt.usda",
 }
 
 OMNIVERSE_ENVIRONMENTS = {
