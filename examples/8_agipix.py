@@ -101,6 +101,12 @@ class AgipixApp:
         # Launch one of the worlds provided by NVIDIA
         self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
         #self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        # Single SimulationContext (avoid creating inside sensor methods)
+        self.simulation_context = SimulationContext(
+            physics_dt=1.0 / self.phy_dt,
+            rendering_dt=1.0 / self.rendering_dt,
+            stage_units_in_meters=1.0,
+        )
         
         from isaacsim.core.api.objects import DynamicCuboid
         # cube_2 = self.world.scene.add(
@@ -180,11 +186,9 @@ class AgipixApp:
         #rclpy.init()
         self.node = DroneLocationPublisher()
         
-        self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / self.rendering_dt, stage_units_in_meters=1.0)
         simulation_app.update()
         
         self.setup_sensors()
-        
 
         # Initialize the Action Graph to publish drone odometry
         #self.init_action_graph()
@@ -241,34 +245,67 @@ class AgipixApp:
         #     **sensor_attributes,
         # )
         
+        # Guard against re-initialization (e.g., script re-run in same Kit session)
+        if getattr(self, "_lidar_initialized", False):
+            carb.log_warn("RTX Lidar already initialized; skipping duplicate creation.")
+            return
+
+        # Clear potential stale Replicator pipeline that can introduce cycle warnings
+        try:
+            import omni.usd
+            stage_ctx = omni.usd.get_context()
+            stage = stage_ctx.get_stage()
+            pipeline_path = "/Render/PostProcess/SDGPipeline"
+            if stage.GetPrimAtPath(pipeline_path):
+                if rep.orchestrator.get_is_started():
+                    rep.orchestrator.stop()
+                rep.orchestrator.clear()
+        except Exception as e:
+            carb.log_warn(f"Could not clear existing replicator pipeline: {e}")
+
+        # Choose a unique prim path under the drone body
+        sensor_prim_path = self.drone._stage_prefix + "/body/lidar_sensor"
+        try:
+            import omni.usd
+            stage = omni.usd.get_context().get_stage()
+            old = stage.GetPrimAtPath(sensor_prim_path)
+            if old and old.IsValid():
+                omni.kit.commands.execute("DeletePrims", paths=[sensor_prim_path])
+        except Exception as e:
+            carb.log_warn(f"Could not remove stale lidar prim: {e}")
+
+        # Create RTX Lidar (config name updated back to Example_Rotary for broader compatibility unless Mid_360 is required)
         _, sensor = omni.kit.commands.execute(
             "IsaacSensorCreateRtxLidar",
-            path="/sensor",
-            parent=self.drone._stage_prefix + "/body",
-            config="Mid_360",
-            translation=(self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2]),
-            orientation=Gf.Quatd(self.node.lidar_ori[0] , self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),  # Gf.Quatd is w,i,j,k
-            force_camera_prim=False
+            path=sensor_prim_path,
+            parent=None,
+            config="Mid 360",
+            translation=(self.node.lidar_trans[0], self.node.lidar_trans[1], self.node.lidar_trans[2]),
+            orientation=Gf.Quatd(self.node.lidar_ori[0], self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),
+            force_camera_prim=False,
         )
 
-        # RTX sensors are cameras and must be assigned to their own render product
+        # Render product (use a standard resolution >1x1; 512x64 for lidar-like aspect)
         hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
-        # Avoid creating a second SimulationContext in Isaac Sim 5.0.
         simulation_app.update()
 
-        # Create Point cloud publisher pipeline in the post process graph
-        writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
-        writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
-        writer.attach([hydra_texture])
+        # Create / attach point cloud writer only once
+        try:
+            pc_writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
+            pc_writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
+            pc_writer.attach([hydra_texture])
+        except Exception as e:
+            carb.log_error(f"Failed to init lidar point cloud writer: {e}")
 
-        # Optionally add debug draw or laser scan publishers if needed
-        # debug_writer = rep.writers.get("RtxLidarDebugDrawPointCloud")
-        # debug_writer.attach([hydra_texture])
-        # scan_writer = rep.writers.get("RtxLidarROS2PublishLaserScan")
-        # scan_writer.initialize(topicName="laser_scan", frameId="drone0/base_link")
-        # scan_writer.attach([hydra_texture])
+        # Optional debug draw (guarded)
+        # try:
+        #     dbg_writer = rep.writers.get("RtxLidarDebugDrawPointCloud")
+        #     dbg_writer.attach([hydra_texture])
+        # except Exception as e:
+        #     carb.log_warn(f"Failed to attach lidar debug draw writer: {e}")
 
         simulation_app.update()
+        self._lidar_initialized = True
 
     def init_action_graph(self):
         keys = og.Controller.Keys
