@@ -397,7 +397,7 @@
         "${workspaceFolder}/app/kit/extscore/omni.kit.viewport.actions",
         "${workspaceFolder}/app/kit/extscore/omni.kit.usd_undo",
         "${workspaceFolder}/app/kit/extscore/omni.kit.viewport.registry",
-        "${workspaceFolder}/app/kit/extscore/omni.kit.window.viewport",
+        "${workspaceFolder}/app/kit/extscore/omni.kit.capture.viewport",
         "${workspaceFolder}/app/kit/extscore/omni.hydra.scene_delegate",
         "${workspaceFolder}/app/kit/extscore/omni.mtlx",
         "${workspaceFolder}/app/kit/extscore/omni.kit.widget.viewport",

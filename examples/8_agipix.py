@@ -99,8 +99,9 @@ class AgipixApp:
         self.world = self.pg.world
 
         # Launch one of the worlds provided by NVIDIA
-        self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        #self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        #self.pg.load_environment(FLAT_ENVIRONMENTS["AKW"])
         # Single SimulationContext (avoid creating inside sensor methods)
         self.simulation_context = SimulationContext(
             physics_dt=1.0 / self.phy_dt,
@@ -279,7 +280,7 @@ class AgipixApp:
             "IsaacSensorCreateRtxLidar",
             path=sensor_prim_path,
             parent=None,
-            config="Mid 360",
+            config="Mid_360",
             translation=(self.node.lidar_trans[0], self.node.lidar_trans[1], self.node.lidar_trans[2]),
             orientation=Gf.Quatd(self.node.lidar_ori[0], self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),
             force_camera_prim=False,
@@ -297,12 +298,13 @@ class AgipixApp:
         except Exception as e:
             carb.log_error(f"Failed to init lidar point cloud writer: {e}")
 
-        # Optional debug draw (guarded)
-        # try:
-        #     dbg_writer = rep.writers.get("RtxLidarDebugDrawPointCloud")
-        #     dbg_writer.attach([hydra_texture])
-        # except Exception as e:
-        #     carb.log_warn(f"Failed to attach lidar debug draw writer: {e}")
+        #Optional debug draw (guarded)
+        if False:
+            try:
+                dbg_writer = rep.writers.get("RtxLidarDebugDrawPointCloud")
+                dbg_writer.attach([hydra_texture])
+            except Exception as e:
+                carb.log_warn(f"Failed to attach lidar debug draw writer: {e}")
 
         simulation_app.update()
         self._lidar_initialized = True
