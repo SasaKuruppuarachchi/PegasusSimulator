@@ -408,7 +408,7 @@ class ROS2Backend(Backend):
         self.graphical_sensors_writers[data["camera_name"]] = [writer]
 
         # Check if depth is enabled, if so, set the depth properties
-        if "depth" in data:
+        if True: #"depth" in data:
 
             # Create the writer for the depth camera
             writer_depth = rep.writers.get("DistanceToImagePlaneSDROS2PublishImage")
@@ -420,9 +420,9 @@ class ROS2Backend(Backend):
 
         # Create a writer for publishing the camera info
         step_size = int(60/freq)
-        topic_name = camera.name+"_camera_info"
+        topic_name = data["camera_name"] + "/camera_info"
         queue_size = 1
-        node_namespace = ""
+        node_namespace = self._namespace + str(self._id)
         frame_id = camera.prim_path.split("/")[-1] # This matches what the TF tree is publishing.
 
         writer_info = rep.writers.get("ROS2PublishCameraInfo")

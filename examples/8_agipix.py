@@ -100,8 +100,8 @@ class AgipixApp:
 
         # Launch one of the worlds provided by NVIDIA
         #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        #self.pg.load_environment(FLAT_ENVIRONMENTS["AKW"])
+        #self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
+        self.pg.load_environment(FLAT_ENVIRONMENTS["AKW"])
         # Single SimulationContext (avoid creating inside sensor methods)
         self.simulation_context = SimulationContext(
             physics_dt=1.0 / self.phy_dt,
@@ -147,26 +147,46 @@ class AgipixApp:
         # to the camera prim, to which this graph will be connected. All ROS2 topics published by this graph will have 
         # namespace `quadrotor` and frame_id `Camera` followed by the selected camera types (`rgb`, `camera_info`).
         # config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info'],"tf_frame_id": "camera"})]
+        # config_multirotor.graphical_sensors = [
+        #     MonocularCamera(
+        #         "Camera",
+        #         config={
+        #             "depth": True,
+        #             "pixel_size": 3,
+        #             "f_stop": 1.8,
+        #             "focus_distance": 15,
+        #             "position": np.array([0.30, 0.0, 0.0]),
+        #             "orientation": np.array([180.0, -180.0, 0.0]),
+        #             "resolution": (1920, 1200),
+        #             "frequency": 30,
+        #             "intrinsics": np.array([
+        #                 [958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]
+        #             ]),
+        #             "distortion_coefficients": np.array([0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017]),  # adjust if you have real values
+        #             "diagonal_fov": 140.0
+        #         }
+        #     )
+        # ]
+        
         config_multirotor.graphical_sensors = [
             MonocularCamera(
-                "Camera",
+                "RealSense_Camera",
                 config={
                     "depth": True,
-                    "pixel_size": 3,
-                    "f_stop": 1.8,
-                    "focus_distance": 15,
-                    "position": np.array([0.30, 0.0, 0.0]),
+                    "raw_calib_mode": True,
+                    "focal_length": 1.93,
+                    "f_stop": 0.0,
+                    "focus_distance": 0.6,
+                    "vertical_aperture": 2.453,
+                    "horizontal_aperture": 3.896,
+                    "position": np.array([0.13, 0.0, -0.022]),
                     "orientation": np.array([180.0, -180.0, 0.0]),
                     "resolution": (1920, 1200),
                     "frequency": 30,
-                    "intrinsics": np.array([
-                        [958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]
-                    ]),
-                    "distortion_coefficients": np.array([0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017]),  # adjust if you have real values
-                    "diagonal_fov": 140.0
                 }
             )
         ]
+        
 
         self.drone = Multirotor(
             "/World/drone0",
@@ -211,7 +231,10 @@ class AgipixApp:
         self.create_rtx_lidar()
         print("RTX Lidar created")
         self.create_imu_sensor()
-        
+        #self.create_realsense_camera()
+        print("Realsense Camera created")
+
+
     async def setup_post_load(self):
         pass    # Auxiliar variable for the timeline callback example
         
@@ -323,7 +346,7 @@ class AgipixApp:
                     ("publish_odometry", "isaacsim.ros2.bridge.ROS2PublishOdometry")
                 ],
                 keys.SET_VALUES: [
-                    ("compute_odometry.inputs:chassisPrim", "/World/drone0"),
+                    ("compute_odometry.inputs:chassisPrim", self.drone._stage_prefix + "/body"),
                     ("publish_clock.inputs:topicName", "clock"),
                     #("publish_odometry.inputs:nodeNamespace", "drone0"),
                     ("publish_odometry.inputs:topicName", "drone0/gt"),

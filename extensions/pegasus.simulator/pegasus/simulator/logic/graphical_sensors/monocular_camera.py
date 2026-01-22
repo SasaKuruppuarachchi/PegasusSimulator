@@ -96,6 +96,7 @@ class MonocularCamera(GraphicalSensor):
         # Configurations of the camera
         
         self._depth = config.get("depth", True)
+        self._mode = config.get("raw_calib_mode", False) 
         self._pixel_size = config.get("pixel_size", 3)
         # Set f-number, the ratio of the lens focal length to the diameter of the entrance pupil (unitless)
         self._f_stop = config.get("f_stop", 1.8)
@@ -106,8 +107,12 @@ class MonocularCamera(GraphicalSensor):
         self._resolution = config.get("resolution", (1920, 1200))
         self._frequency = config.get("frequency", 30)
         self._intrinsics = config.get("intrinsics", [[958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]])
-        self._distortion_coefficients = config.get("distortion_coefficients", [0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017])
+        self._distortion_coefficients = config.get("distortion_coefficients", None)
         self._diagonal_fov = config.get("diagonal_fov", 140.0)
+        
+        self.focal_length = config.get("focal_length", 0.0036)  # meters
+        self.horizontal_aperture = config.get("horizontal_aperture", 0.0032)  # meters
+        self.vertical_aperture = config.get("vertical_aperture", 0.0024)  # meters
 
         # Setup an empty camera output dictionary
         self._state = {}
@@ -149,6 +154,11 @@ class MonocularCamera(GraphicalSensor):
         focal_length_x = self._pixel_size * fx * 1e-6  # convert to meters
         focal_length_y = self._pixel_size * fy * 1e-6  # convert to meters
         focal_length = (focal_length_x + focal_length_y) / 2  # convert to meters
+        
+        if self._mode:
+            focal_length = self.focal_length
+            horizontal_aperture = self.horizontal_aperture
+            vertical_aperture = self.vertical_aperture
 
         # Set the camera parameters, note the unit conversion between Isaac Sim sensor and Kit
         self._camera.set_focal_length(focal_length)
@@ -157,7 +167,7 @@ class MonocularCamera(GraphicalSensor):
         self._camera.set_horizontal_aperture(horizontal_aperture)
         self._camera.set_vertical_aperture(vertical_aperture)
 
-        self._camera.set_clipping_range(0.05, 1.0e5)
+        self._camera.set_clipping_range(0.01, 1.0e6)
 
         # Set the distortion coefficients
 

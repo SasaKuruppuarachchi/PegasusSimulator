@@ -1,8 +1,8 @@
 ardupilot_default_airframe: gazebo-iris
 ardupilot_dir: ~/ardupilot
 global_coordinates:
-  altitude: 90.0
-  latitude: 38.736832
-  longitude: -9.137977
+  altitude: 114.9
+  latitude: 61.44997
+  longitude: 23.85520
 px4_default_airframe: gazebo-classic_iris
 px4_dir: /home/sasa/PX4-Autopilot
