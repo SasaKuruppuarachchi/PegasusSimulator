@@ -52,10 +52,10 @@ NVIDIA_SIMULATION_ENVIRONMENTS = {
 }
 
 FLAT_ENVIRONMENTS = {
-    "Full Warehouse": WORLDS_ASSETS + "/flat/warehouse_flt.usd",
-    "Hospital": WORLDS_ASSETS + "/flat/hospital.usd",
-    "Office": WORLDS_ASSETS + "/flat/office_flt.usd",
-    "AKW": WORLDS_ASSETS + "/flat/akw_lvl1.usd",
+    "Full Warehouse": WORLDS_ASSETS + "/isaac_envs/warehouse_flt.usd",
+    "Hospital": WORLDS_ASSETS + "/isaac_envs/hospital.usd",
+    "Office": WORLDS_ASSETS + "/isaac_envs/office_flt.usd",
+    "AKW": WORLDS_ASSETS + "/isaac_envs/akw_lvl1.usd",
 }
 
 OMNIVERSE_ENVIRONMENTS = {
