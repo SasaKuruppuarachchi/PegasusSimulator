@@ -56,6 +56,7 @@ FLAT_ENVIRONMENTS = {
     "Hospital": WORLDS_ASSETS + "/isaac_envs/hospital.usd",
     "Office": WORLDS_ASSETS + "/isaac_envs/office_flt.usd",
     "AKW": WORLDS_ASSETS + "/isaac_envs/akw_lvl1.usd",
+    "AKW_C": WORLDS_ASSETS + "/isaac_envs/akw_lvl1_climb.usd",
 }
 
 OMNIVERSE_ENVIRONMENTS = {

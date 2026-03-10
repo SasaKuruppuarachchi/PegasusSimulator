@@ -83,6 +83,8 @@ class AgipixApp:
         """
 
         # Acquire the timeline that will be used to start/stop the simulation
+        self.namespace = 'drone'
+        self.id = 0
         self.timeline = omni.timeline.get_timeline_interface()
         self.assets_root_path = nucleus.get_assets_root_path()
 
@@ -101,7 +103,7 @@ class AgipixApp:
         # Launch one of the worlds provided by NVIDIA
         #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
         #self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        self.pg.load_environment(FLAT_ENVIRONMENTS["AKW"])
+        self.pg.load_environment(FLAT_ENVIRONMENTS["AKW_C"])
         # Single SimulationContext (avoid creating inside sensor methods)
         self.simulation_context = SimulationContext(
             physics_dt=1.0 / self.phy_dt,
@@ -126,16 +128,16 @@ class AgipixApp:
         config_multirotor = MultirotorConfig()
         # Create the multirotor configuration
         mavlink_config = PX4MavlinkBackendConfig({
-            "vehicle_id": 0,
+            "vehicle_id": self.id,
             "px4_autolaunch": True,
             "px4_dir": self.pg.px4_path,
             "px4_vehicle_model": self.pg.px4_default_airframe
         })
         config_multirotor.backends = [
             PX4MavlinkBackend(mavlink_config), 
-            ROS2Backend(vehicle_id=1, 
+            ROS2Backend(vehicle_id=self.id, 
                         config={
-                            "namespace": 'drone', 
+                            "namespace": self.namespace, 
                             "pub_sensors": False,
                             "pub_graphical_sensors": True,
                             "pub_state": True,
@@ -316,7 +318,7 @@ class AgipixApp:
         # Create / attach point cloud writer only once
         try:
             pc_writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
-            pc_writer.initialize(topicName="point_cloud", frameId="drone0/lidar_link")
+            pc_writer.initialize(topicName= self.namespace + str(self.id) + "/" + "livox/lidar", frameId="drone0/lidar_link")
             pc_writer.attach([hydra_texture])
         except Exception as e:
             carb.log_error(f"Failed to init lidar point cloud writer: {e}")
