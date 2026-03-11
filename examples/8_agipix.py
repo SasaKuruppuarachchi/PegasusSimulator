@@ -8,6 +8,7 @@
 """
 
 # Imports to start Isaac Sim from this script
+import argparse
 import carb
 from isaacsim import SimulationApp
 import time
@@ -77,14 +78,15 @@ class AgipixApp:
     A Template class that serves as an example on how to build a simple Isaac Sim standalone App.
     """
 
-    def __init__(self):
+    def __init__(self, namespace="drone", vehicle_id=0):
         """
         Method that initializes the PegasusApp and is used to setup the simulation environment.
         """
 
         # Acquire the timeline that will be used to start/stop the simulation
-        self.namespace = 'drone'
-        self.id = 0
+        self.namespace = namespace
+        self.id = vehicle_id
+        self.vehicle_name = f"{self.namespace}{self.id}"
         self.timeline = omni.timeline.get_timeline_interface()
         self.assets_root_path = nucleus.get_assets_root_path()
 
@@ -191,9 +193,9 @@ class AgipixApp:
         
 
         self.drone = Multirotor(
-            "/World/drone0",
+            f"/World/{self.vehicle_name}",
             ROBOTS['Agipix v2'],
-            0,
+            self.id,
             [0.0, 0.0, 0.07],
             Rotation.from_euler("XYZ", [0.0, 0.0, 0.0], degrees=True).as_quat(),
             config=config_multirotor,
@@ -207,7 +209,7 @@ class AgipixApp:
         
         # Initialize ROS 2
         #rclpy.init()
-        self.node = DroneLocationPublisher()
+        self.node = DroneLocationPublisher(namespace=self.namespace, vehicle_id=self.id)
         
         simulation_app.update()
         
@@ -318,7 +320,7 @@ class AgipixApp:
         # Create / attach point cloud writer only once
         try:
             pc_writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
-            pc_writer.initialize(topicName= self.namespace + str(self.id) + "/" + "livox/lidar", frameId="drone0/lidar_link")
+            pc_writer.initialize(topicName=f"{self.vehicle_name}/livox/lidar", frameId=f"{self.vehicle_name}/lidar_link")
             pc_writer.attach([hydra_texture])
         except Exception as e:
             carb.log_error(f"Failed to init lidar point cloud writer: {e}")
@@ -351,9 +353,9 @@ class AgipixApp:
                     ("compute_odometry.inputs:chassisPrim", self.drone._stage_prefix + "/body"),
                     ("publish_clock.inputs:topicName", "clock"),
                     #("publish_odometry.inputs:nodeNamespace", "drone0"),
-                    ("publish_odometry.inputs:topicName", "drone0/gt"),
+                    ("publish_odometry.inputs:topicName", f"{self.vehicle_name}/gt"),
                     ("publish_odometry.inputs:odomFrameId", "world"),
-                    ("publish_odometry.inputs:chassisFrameId", "drone0/base_link")
+                    ("publish_odometry.inputs:chassisFrameId", f"{self.vehicle_name}/base_link")
                 ],
                 keys.CONNECT: [
                     ("tick.outputs:tick", "read_times.inputs:execIn"),
@@ -456,9 +458,29 @@ class AgipixApp:
         #self.timeline.stop()
         simulation_app.close()
 
+def parse_cli_args():
+    parser = argparse.ArgumentParser(description="Run the Agipix standalone simulation example.")
+    parser.add_argument(
+        "--namespace",
+        default="drone",
+        help="Base namespace prefix used for ROS topics and frame IDs.",
+    )
+    parser.add_argument(
+        "--id",
+        dest="vehicle_id",
+        type=int,
+        default=0,
+        help="Vehicle identifier appended to the namespace.",
+    )
+    args, _ = parser.parse_known_args()
+    return args
+
+
 def main():
+    args = parse_cli_args()
+
     # Instantiate the template app
-    pg_app = AgipixApp()
+    pg_app = AgipixApp(namespace=args.namespace, vehicle_id=args.vehicle_id)
 
     # Run the application loop
     pg_app.run()
