@@ -12,8 +12,7 @@ from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 
 # Imports the python bindings to interact with lidar sensor
 import omni.kit.commands
-from pxr import Gf, UsdGeom
-from isaacsim.sensors.physx import _range_sensor      
+from pxr import Gf, UsdGeom  
 from omni.usd import get_stage_next_free_path
 
 # Auxiliary scipy and numpy modules
@@ -29,7 +28,7 @@ class Lidar(GraphicalSensor):
         """
         Initialize the Lidar class
 
-        The available configurations for the lidar are available in the folder exts/isaacsim.sensor/data/lidar_configs
+        The available configurations for the lidar are available in the folder exts/omni.isaac.sensor/data/lidar_configs
         Check also the official documentation:
         https://docs.omniverse.nvidia.com/isaacsim/latest/features/sensors_simulation/isaac_sim_sensors_rtx_based_lidar.html
         """
@@ -43,12 +42,13 @@ class Lidar(GraphicalSensor):
 
         # Configurations of the Lidar
         self._position = config.get("position", np.array([0.0, 0.0, 0.10]))
-        self._orientation = Rotation.from_euler("ZYX", config.get("orientation", np.array([0.0, 0.0, 0.0])), degrees=True).as_quat()
-        self._sensor_configuration = config.get("sensor_configuration", "Velodyne_VLS128")
+        #self._orientation = Rotation.from_euler("ZYX", config.get("orientation", np.array([0.0, 0.0, 0.0])), degrees=True).as_quat()
+        self._orientation = config.get("orientation", np.array([0.0, 0.0, 0.0, 1.0])) # x, y, z, w
+        self._sensor_configuration = config.get("sensor_configuration", "Example_Rotary")
         self._show_render = config.get("show_render", False)
-        
-        # Create the lidar interface
-        self.lidarInterface = _range_sensor.acquire_lidar_sensor_interface() # Used to interact with the LIDAR
+        self._frame_id = config.get("frame_id", "lidar_link")
+
+        self._sensor = None
 
     def initialize(self, vehicle):
         """
@@ -62,23 +62,24 @@ class Lidar(GraphicalSensor):
         # Get the camera name that was actually created (and update the camera name)
         self._lidar_name = self._stage_prim_path.rpartition("/")[-1]
         
-        _, sensor = omni.kit.commands.execute(
+        _, self._sensor = omni.kit.commands.execute(
             "IsaacSensorCreateRtxLidar",
             path=self._lidar_name,
             parent=self._vehicle.prim_path + "/body",
-            config=self._sensor_configuration,
+            config= self._sensor_configuration,
             translation=(self._position[0], self._position[1], self._position[2]),
-            orientation=Gf.Quatd(self._orientation[3], self._orientation[0], self._orientation[1], self._orientation[2])
+            orientation=Gf.Quatd(self._orientation[0], self._orientation[1], self._orientation[2], self._orientation[3]),
+            force_camera_prim=False,
         )
     
     def start(self):
 
         # If show_render is True, then create a render product for the lidar in the Isaac Sim environment
         if self._show_render:
-            render_prod_path = rep.create.render_product(self._stage_prim_path, [1, 1], name=self._lidar_name + "_isaac_render")
-            writer = rep.writers.get("RtxLidarDebugDrawPointCloudBuffer")
-            writer.initialize()
-            writer.attach([render_prod_path])
+            hydra_texture = rep.create.render_product(self._sensor.GetPath(), [1, 1], name="Isaac")
+            writer = rep.writers.get("RtxLidar" + "ROS2PublishPointCloud")
+            writer.initialize(topicName="point_cloud", frameId="base_scan")
+            writer.attach([hydra_texture])
 
     @property
     def state(self):
@@ -99,7 +100,7 @@ class Lidar(GraphicalSensor):
             (dict) A dictionary containing the current state of the sensor (the data produced by the sensor)
         """
 
-        # Just return the prim path and the name of the lidar
-        self._state = {"lidar_name": self._lidar_name, "stage_prim_path": self._stage_prim_path}
+        # Return the lidar prim path, name, and frame_id for ROS2 backend
+        self._state = {"lidar_name": self._lidar_name, "stage_prim_path": self._stage_prim_path, "frame_id": self._frame_id}
 
         return self._state

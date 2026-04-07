@@ -18,7 +18,7 @@ from rclpy.parameter import Parameter
 GRAVITY = 9.81
 
 class DroneLocationPublisher(Node):
-    def __init__(self, namespace='drone', vehicle_id=0):
+    def __init__(self, namespace='drone', vehicle_id=0,lidar_trans=[0.0795, 0.0, 0.0323],lidar_ori=[0.9238795, 0.0, 0.3826834, 0.0]):
         self.namespace = namespace
         self.vehicle_id = vehicle_id
         self.vehicle_name = f"{self.namespace}{self.vehicle_id}"
@@ -41,8 +41,8 @@ class DroneLocationPublisher(Node):
         self.u = None
         #self.timer = self.create_timer(1.0, self.check_clock_topic)  # Check every 1 second
         # Create a static transform broadcaster for lidar_link and base_link
-        self.lidar_trans = [0.0795, 0.0, 0.0323]
-        self.lidar_ori = [0.9238795, 0.0, 0.3826834, 0.0,]
+        self.lidar_trans = lidar_trans
+        self.lidar_ori = lidar_ori
         lidar_frame_broadcaster = StaticTransformBroadcaster(self)
         self.publish_static_transform(
             f'{self.vehicle_name}/lidar_link',

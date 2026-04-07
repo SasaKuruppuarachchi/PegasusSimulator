@@ -1,446 +1,239 @@
 #!/usr/bin/env python
 """
-| File: 8_camera_vehicle.py
-| License: BSD-3-Clause. Copyright (c) 2024, Marcelo Jacinto. All rights reserved.
-| Description: This files serves as an example on how to build an app that makes use of the Pegasus API, 
-| where the data is send/received through mavlink, the vehicle is controled using mavlink and
-| camera data is sent to ROS2 topics at the same time.
+Agipix PX4 + ROS2 standalone example.
 """
 
-# Imports to start Isaac Sim from this script
 import argparse
-import carb
-from isaacsim import SimulationApp
+import os
+import sys
 import time
 
-# Start Isaac Sim's simulation environment
-# Note: this simulation app must be instantiated right after the SimulationApp import, otherwise the simulator will crash
-# as this is the object that will load all the extensions and load the actual simulator.
-simulation_app = SimulationApp({"headless": False})
-
-# -----------------------------------
-# The actual script should start here
-# -----------------------------------
-import omni.timeline
-from isaacsim.core.api.world import World
-from isaacsim.core.utils.extensions import disable_extension, enable_extension
-
-# Enable/disable ROS bridge extensions to keep only ROS2 Bridge
-disable_extension("isaacsim.ros2.bridge")
-enable_extension("isaacsim.ros2.bridge")
-
-# Import the Pegasus API for simulating drones
-from pegasus.simulator.params import ROBOTS, SIMULATION_ENVIRONMENTS, FLAT_ENVIRONMENTS
-#from pegasus.simulator.logic.state import State
-from pegasus.simulator.logic.graphical_sensors.monocular_camera import MonocularCamera
-#from pegasus.simulator.logic.graphical_sensors.lidar import Lidar
-from pegasus.simulator.logic.backends.px4_mavlink_backend import PX4MavlinkBackend, PX4MavlinkBackendConfig
-from pegasus.simulator.logic.backends.ros2_backend import ROS2Backend
-from pegasus.simulator.logic.vehicles.multirotor import Multirotor, MultirotorConfig
-from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
-#from pegasus.simulator.logic.graphs import ROS2Camera
-
-
-# Auxiliary scipy and numpy modules
 import numpy as np
+from isaacsim import SimulationApp
 from scipy.spatial.transform import Rotation
 
-# Import Isaac Sim Action Graph components
-import omni.graph.core as og
-from isaacsim.core.nodes.scripts.utils import set_target_prims
 
-# ROS 2 imports
-import rclpy
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
-sys.path.append(os.path.dirname(__file__))  # Also add current dir for sibling imports
+# SimulationApp must be created immediately after import in Isaac Sim standalone scripts.
+simulation_app = SimulationApp({"headless": False})
 
-from drone_location_pub import DroneLocationPublisher
-# lidar
-from isaacsim.sensors.rtx import LidarRtx
-from isaacsim.sensors.physics import IMUSensor
+
+import carb
 import omni
-import omni.kit.viewport.utility
-import omni.replicator.core as rep
-from isaacsim.core.api import SimulationContext
-from isaacsim.core.utils.stage import create_new_stage_async, update_stage_async
+import omni.timeline
 import isaacsim.storage.native as nucleus
-from pxr import Gf
+
+from isaacsim.core.api import SimulationContext
+from isaacsim.core.api.world import World
+from isaacsim.core.utils.extensions import disable_extension, enable_extension
+from isaacsim.sensors.physics import IMUSensor
 
 
-GRAVITY = 9.81
+# Keep only ROS2 bridge extension enabled.
+disable_extension("isaacsim.ros2.bridge")
+enable_extension("isaacsim.ros2.bridge")
+simulation_app.update()
 
+from pegasus.simulator.logic.backends.px4_mavlink_backend import PX4MavlinkBackend, PX4MavlinkBackendConfig
+from pegasus.simulator.logic.backends.ros2_backend import ROS2Backend
+from pegasus.simulator.logic.graphical_sensors.lidar import Lidar
+from pegasus.simulator.logic.graphical_sensors.monocular_camera import MonocularCamera
+from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
+from pegasus.simulator.logic.vehicles.multirotor import Multirotor, MultirotorConfig
+from pegasus.simulator.params import FLAT_ENVIRONMENTS, ROBOTS
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
+sys.path.append(os.path.dirname(__file__))
+from drone_location_pub import DroneLocationPublisher
+
+
+DEFAULT_PHYSICS_HZ = 250.0
+DEFAULT_PUBLISH_HZ = 100.0
+DEFAULT_RENDER_HZ = 30.0
 
 
 class AgipixApp:
-    """
-    A Template class that serves as an example on how to build a simple Isaac Sim standalone App.
-    """
-
     def __init__(self, namespace="drone", vehicle_id=0):
-        """
-        Method that initializes the PegasusApp and is used to setup the simulation environment.
-        """
-
-        # Acquire the timeline that will be used to start/stop the simulation
         self.namespace = namespace
         self.id = vehicle_id
         self.vehicle_name = f"{self.namespace}{self.id}"
+
         self.timeline = omni.timeline.get_timeline_interface()
         self.assets_root_path = nucleus.get_assets_root_path()
 
-        # Start the Pegasus Interface
-        self.pg = PegasusInterface()
+        self.phy_dt = DEFAULT_PHYSICS_HZ
+        self.pub_dt = DEFAULT_PUBLISH_HZ
+        self.rendering_dt = DEFAULT_RENDER_HZ
 
-        # Acquire the World, .i.e, the singleton that controls that is a one stop shop for setting up physics,
-        # spawning asset primitives, etc.
-        self.phy_dt = 250.0
-        self.pub_dt = 100.0 # HZ = 1/dt
-        self.rendering_dt = 30.0
-        self.pg._world_settings = {"physics_dt": 1.0 / self.phy_dt, "stage_units_in_meters": 1.0, "rendering_dt": 1.0 / self.rendering_dt}
+        self.lidar_trans = [0.0795, 0.0, 0.0323]
+        self.lidar_ori = [0.9238795, 0.0, 0.3826834, 0.0]
+
+        self.stop_sim = False
+        self.sim_elapsed_time = None
+        self.real_elapsed_time = None
+        self.physics_stp_cnt = 0
+
+        self._setup_world()
+        self._spawn_vehicle()
+        self._setup_publishers_and_sensors()
+
+        self.world.add_physics_callback("sim_step", callback_fn=self.physics_step)
+
+    def _setup_world(self):
+        self.pg = PegasusInterface()
+        self.pg._world_settings = {
+            "physics_dt": 1.0 / self.phy_dt,
+            "stage_units_in_meters": 1.0,
+            "rendering_dt": 1.0 / self.rendering_dt,
+        }
         self.pg._world = World(**self.pg._world_settings)
         self.world = self.pg.world
-
-        # Launch one of the worlds provided by NVIDIA
-        #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        #self.pg.load_environment(FLAT_ENVIRONMENTS["Hospital"]) #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
         self.pg.load_environment(FLAT_ENVIRONMENTS["AKW_C"])
-        # Single SimulationContext (avoid creating inside sensor methods)
+
         self.simulation_context = SimulationContext(
             physics_dt=1.0 / self.phy_dt,
             rendering_dt=1.0 / self.rendering_dt,
             stage_units_in_meters=1.0,
         )
-        
-        from isaacsim.core.api.objects import DynamicCuboid
-        # cube_2 = self.world.scene.add(
-        #     DynamicCuboid(
-        #         prim_path="/new_cube_2",
-        #         name="cube_1",
-        #         position=np.array([-3.0, 0, 2.0]),
-        #         scale=np.array([1.0, 1.0, 1.0]),
-        #         size=1.0,
-        #         color=np.array([255, 0, 0]),
-        #     )
-        # )
 
-        # Create the vehicle
-        # Try to spawn the selected robot in the world to the specified namespace
+    def _build_vehicle_config(self):
         config_multirotor = MultirotorConfig()
-        # Create the multirotor configuration
-        mavlink_config = PX4MavlinkBackendConfig({
-            "vehicle_id": self.id,
-            "px4_autolaunch": True,
-            "px4_dir": self.pg.px4_path,
-            "px4_vehicle_model": self.pg.px4_default_airframe
-        })
+
+        mavlink_config = PX4MavlinkBackendConfig(
+            {
+                "vehicle_id": self.id,
+                "px4_autolaunch": True,
+                "px4_dir": self.pg.px4_path,
+                "px4_vehicle_model": self.pg.px4_default_airframe,
+            }
+        )
+
         config_multirotor.backends = [
-            PX4MavlinkBackend(mavlink_config), 
-            ROS2Backend(vehicle_id=self.id, 
-                        config={
-                            "namespace": self.namespace, 
-                            "pub_sensors": False,
-                            "pub_graphical_sensors": True,
-                            "pub_state": True,
-                            "sub_control": False,})]
+            PX4MavlinkBackend(mavlink_config),
+            ROS2Backend(
+                vehicle_id=self.id,
+                config={
+                    "namespace": self.namespace,
+                    "pub_sensors": False,
+                    "pub_graphical_sensors": True,
+                    "pub_lidar_laserscan": False,
+                    "pub_state": True,
+                    "sub_control": False,
+                },
+            ),
+        ]
 
-
-        # Create camera graph for the existing Camera prim on the Iris model, which can be found 
-        # at the prim path `/World/quadrotor/body/Camera`. The camera prim path is the local path from the vehicle's prim path
-        # to the camera prim, to which this graph will be connected. All ROS2 topics published by this graph will have 
-        # namespace `quadrotor` and frame_id `Camera` followed by the selected camera types (`rgb`, `camera_info`).
-        # config_multirotor.graphs = [ROS2Camera("body/Camera", config={"types": ['rgb', 'camera_info'],"tf_frame_id": "camera"})]
-        # config_multirotor.graphical_sensors = [
-        #     MonocularCamera(
-        #         "Camera",
-        #         config={
-        #             "depth": True,
-        #             "pixel_size": 3,
-        #             "f_stop": 1.8,
-        #             "focus_distance": 15,
-        #             "position": np.array([0.30, 0.0, 0.0]),
-        #             "orientation": np.array([180.0, -180.0, 0.0]),
-        #             "resolution": (1920, 1200),
-        #             "frequency": 30,
-        #             "intrinsics": np.array([
-        #                 [958.8, 0.0, 957.8], [0.0, 956.7, 589.5], [0.0, 0.0, 1.0]
-        #             ]),
-        #             "distortion_coefficients": np.array([0.14, -0.03, -0.0002, -0.00003, 0.009, 0.5, -0.07, 0.017]),  # adjust if you have real values
-        #             "diagonal_fov": 140.0
-        #         }
-        #     )
-        # ]
-        
         config_multirotor.graphical_sensors = [
             MonocularCamera(
-                self.namespace + str(self.id) + "/RealSense_Camera",
+                "RealSense_Camera",
                 config={
                     "depth": True,
                     "f_stop": 0.0,
                     "focus_distance": 0.6,
                     "position": np.array([0.13, 0.0, -0.022]),
                     "orientation": np.array([180.0, -180.0, 0.0]),
-                    "intrinsics": np.array([
-                        [606.3120727539062, 0.0, 314.6913146972656], [0.0, 605.92626953125, 252.1909942626953], [0.0, 0.0, 1.0]
-                    ]),
-                    "resolution": (640, 480),
+                    # "intrinsics": np.array([
+                    #     [606.3120727539062, 0.0, 314.6913146972656], [0.0, 605.92626953125, 252.1909942626953], [0.0, 0.0, 1.0]
+                    # ]),
+                    # "resolution": (640, 480),
                     "frequency": 30,
-                }
-            )
+                },
+            ),
+            Lidar(
+                "livox",
+                config={
+                    "position": np.array(self.lidar_trans),
+                    "orientation": np.array(self.lidar_ori),
+                    "sensor_configuration": "Mid_360",
+                    "frame_id": "lidar_link",
+                    "show_render": False,
+                    "frequency": 10,
+                },
+            ),
         ]
-        
+
+        return config_multirotor
+
+    def _spawn_vehicle(self):
+        config_multirotor = self._build_vehicle_config()
 
         self.drone = Multirotor(
             f"/World/{self.vehicle_name}",
-            ROBOTS['Agipix v2'],
+            ROBOTS["Agipix v2"],
             self.id,
             [0.0, 0.0, 0.07],
             Rotation.from_euler("XYZ", [0.0, 0.0, 0.0], degrees=True).as_quat(),
             config=config_multirotor,
         )
 
-        # Reset the simulation environment so that all articulations (aka robots) are initialized
+    def _setup_publishers_and_sensors(self):
+        self.node = DroneLocationPublisher(
+            namespace=self.namespace,
+            vehicle_id=self.id,
+            lidar_trans=self.lidar_trans,
+            lidar_ori=self.lidar_ori,
+        )
+
+        simulation_app.update()
+        self.create_imu_sensor()
         self.world.reset()
+
         self.stage = omni.usd.get_context().get_stage()
         self.drone_prim = self.stage.GetPrimAtPath(self.drone._stage_prefix + "/body")
 
-        
-        # Initialize ROS 2
-        #rclpy.init()
-        self.node = DroneLocationPublisher(namespace=self.namespace, vehicle_id=self.id)
-        
-        simulation_app.update()
-        
-        self.setup_sensors()
-
-        # Initialize the Action Graph to publish drone odometry
-        #self.init_action_graph()
-        #self.init_pub_time_graph()
-        self.stop_sim = False
-        self.sim_elapsed_time=None
-        self.real_elapsed_time=None
-        self.world.add_physics_callback("sim_step", callback_fn=self.physics_step)
-        self.physics_stp_cnt = 0
-
-        #self.setup_post_load()
-    
-    def setup_sensors(self):
-        """
-        Method that is called after the stage is loaded, to setup the post load actions.
-        This method is used to setup the action graph and the ROS 2 bridge.
-        """
-        
-        self.create_rtx_lidar()
-        print("RTX Lidar created")
-        self.create_imu_sensor()
-        #self.create_realsense_camera()
-        print("Realsense Camera created")
-
-
-    async def setup_post_load(self):
-        pass    # Auxiliar variable for the timeline callback example
-        
     def create_imu_sensor(self):
         self.isaac_imu = IMUSensor(
-            prim_path=self.drone._stage_prefix + "/body" + "/Imu",
+            prim_path=self.drone._stage_prefix + "/body/Imu",
             name="imu",
             frequency=100,
-            translation=np.array([0, 0, 0]),
-            orientation=np.array([0, -1, 0, 0]), # [w,x,y,z]
-            linear_acceleration_filter_size = 10,
-            angular_velocity_filter_size = 10,
-            orientation_filter_size = 10,
+            translation=np.array([0.0, 0.0, 0.0]),
+            orientation=np.array([0.0, -1.0, 0.0, 0.0]),
+            linear_acceleration_filter_size=10,
+            angular_velocity_filter_size=10,
+            orientation_filter_size=10,
         )
-        
-        
-        
-        
-    def create_rtx_lidar(self):
-        # Guard against re-initialization (e.g., script re-run in same Kit session)
-        if getattr(self, "_lidar_initialized", False):
-            carb.log_warn("RTX Lidar already initialized; skipping duplicate creation.")
-            return
-
-        # Clear potential stale Replicator pipeline that can introduce cycle warnings
-        try:
-            import omni.usd
-            stage_ctx = omni.usd.get_context()
-            stage = stage_ctx.get_stage()
-            pipeline_path = "/Render/PostProcess/SDGPipeline"
-            if stage.GetPrimAtPath(pipeline_path):
-                if rep.orchestrator.get_is_started():
-                    rep.orchestrator.stop()
-                rep.orchestrator.clear()
-        except Exception as e:
-            carb.log_warn(f"Could not clear existing replicator pipeline: {e}")
-
-        # Choose a unique prim path under the drone body
-        sensor_prim_path = self.drone._stage_prefix + "/body/lidar_sensor"
-        try:
-            import omni.usd
-            stage = omni.usd.get_context().get_stage()
-            old = stage.GetPrimAtPath(sensor_prim_path)
-            if old and old.IsValid():
-                omni.kit.commands.execute("DeletePrims", paths=[sensor_prim_path])
-        except Exception as e:
-            carb.log_warn(f"Could not remove stale lidar prim: {e}")
-
-        # Create RTX Lidar (config name updated back to Example_Rotary for broader compatibility unless Mid_360 is required)
-        _, sensor = omni.kit.commands.execute(
-            "IsaacSensorCreateRtxLidar",
-            path=sensor_prim_path,
-            parent=None,
-            config="Mid_360",
-            translation=(self.node.lidar_trans[0], self.node.lidar_trans[1], self.node.lidar_trans[2]),
-            orientation=Gf.Quatd(self.node.lidar_ori[0], self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),
-            force_camera_prim=False,
-        )
-
-        # Render product (use a standard resolution >1x1; 512x64 for lidar-like aspect)
-        hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
-        simulation_app.update()
-
-        # Create / attach point cloud writer only once
-        try:
-            pc_writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
-            pc_writer.initialize(topicName=f"{self.vehicle_name}/livox/lidar", frameId=f"{self.vehicle_name}/lidar_link")
-            pc_writer.attach([hydra_texture])
-        except Exception as e:
-            carb.log_error(f"Failed to init lidar point cloud writer: {e}")
-
-        #Optional debug draw (guarded)
-        if False:
-            try:
-                dbg_writer = rep.writers.get("RtxLidarDebugDrawPointCloud")
-                dbg_writer.attach([hydra_texture])
-            except Exception as e:
-                carb.log_warn(f"Failed to attach lidar debug draw writer: {e}")
-
-        simulation_app.update()
-        self._lidar_initialized = True
-
-    def init_action_graph(self):
-        keys = og.Controller.Keys
-
-        (graph_handle, list_of_nodes, _, _) = og.Controller.edit(
-            {"graph_path": "/action_graph", "evaluator_name": "execution"},
-            {
-                keys.CREATE_NODES: [
-                    ("tick", "omni.graph.action.OnTick"),
-                    ("read_times", "isaacsim.core.nodes.IsaacReadTimes"),
-                    ("compute_odometry", "isaacsim.core.nodes.IsaacComputeOdometry"),
-                    ("publish_clock", "isaacsim.ros2.bridge.ROS2PublishClock"),
-                    ("publish_odometry", "isaacsim.ros2.bridge.ROS2PublishOdometry")
-                ],
-                keys.SET_VALUES: [
-                    ("compute_odometry.inputs:chassisPrim", self.drone._stage_prefix + "/body"),
-                    ("publish_clock.inputs:topicName", "clock"),
-                    #("publish_odometry.inputs:nodeNamespace", "drone0"),
-                    ("publish_odometry.inputs:topicName", f"{self.vehicle_name}/gt"),
-                    ("publish_odometry.inputs:odomFrameId", "world"),
-                    ("publish_odometry.inputs:chassisFrameId", f"{self.vehicle_name}/base_link")
-                ],
-                keys.CONNECT: [
-                    ("tick.outputs:tick", "read_times.inputs:execIn"),
-                    ("read_times.outputs:execOut", "compute_odometry.inputs:execIn"),
-                    ("read_times.outputs:execOut", "publish_clock.inputs:execIn"),
-                    ("read_times.outputs:systemTime", "publish_clock.inputs:timeStamp"),
-                    ("read_times.outputs:systemTime", "publish_odometry.inputs:timeStamp"),
-                    ("compute_odometry.outputs:execOut", "publish_odometry.inputs:execIn"),
-                    ("compute_odometry.outputs:angularVelocity", "publish_odometry.inputs:angularVelocity"),
-                    ("compute_odometry.outputs:linearVelocity", "publish_odometry.inputs:linearVelocity"),
-                    ("compute_odometry.outputs:orientation", "publish_odometry.inputs:orientation"),
-                    ("compute_odometry.outputs:position", "publish_odometry.inputs:position")
-                ],
-            },
-        )
-
-    def init_pub_time_graph(self):
-        keys = og.Controller.Keys
-
-        (graph_handle, list_of_nodes, _, _) = og.Controller.edit(
-            {"graph_path": "/time_graph", "evaluator_name": "execution"},
-            {
-                keys.CREATE_NODES: [
-                    ("tick", "omni.graph.action.OnTick"),
-                    ("read_times", "isaacsim.core.nodes.IsaacReadTimes"),
-                    ("publish_clock", "isaacsim.ros2.bridge.ROS2PublishClock"),
-                    
-                ],
-                keys.SET_VALUES: [
-                    ("publish_clock.inputs:topicName", "clock")
-                ],
-                keys.CONNECT: [
-                    ("tick.outputs:tick", "read_times.inputs:execIn"),
-                    ("read_times.outputs:execOut", "publish_clock.inputs:execIn"),
-                    ("read_times.outputs:simulationTime", "publish_clock.inputs:timeStamp")
-                ],
-            },
-        )
+        print("IMU sensor created")
 
     def physics_step(self, dt: float):
-        # publish clock
         current_sim_time = self.simulation_context.current_time
         current_time = time.time()
         self.node.publish_clock(current_sim_time)
-        
-        if self.physics_stp_cnt:
-            # do something in between publishes
-            pass
-            
-        elif self.sim_elapsed_time is None:
-            self.sim_elapsed_time = current_sim_time
-            self.real_elapsed_time = current_time
-        else:
-            self.sim_dt = current_sim_time - self.sim_elapsed_time
-            self.real_dt = current_time - self.real_elapsed_time
-            #print(self.sim_dt,self.real_dt)
-            self.sim_elapsed_time = current_sim_time
-            self.real_elapsed_time = current_time
-            self.node.publish_rtf(self.real_dt,self.sim_dt)
-            
-            state = self.drone._state 
-            #position = self.drone_prim.GetAttribute('xformOp:translate')
-            #orientation = self.drone_prim.GetAttribute('xformOp:orient')
-            self.node.publish_gt(state,current_sim_time)
-            
-            # publish gt_imu
-            self.node.publish_gt_imu(current_sim_time, state)
-            
-            # [prop_force0,..,prop_force3, sum_force (N),rolling moment (Nm)]
-            self.node.publish_gt_forces(self.drone.forces,self.drone.rolling_moment) 
-            # weight of the system 1.657 Kg . Total Thrust at hover = 16.256 N, Mass Normalised = 9.81 N/Kg
-            
-            # publish own_imu
-            imu_frame = self.isaac_imu.get_current_frame()
-            self.node.publish_self_imu(imu_frame)
-            
-            
-        if self.physics_stp_cnt >= self.phy_dt/self.pub_dt-1:
+
+        if self.physics_stp_cnt == 0:
+            if self.sim_elapsed_time is None:
+                self.sim_elapsed_time = current_sim_time
+                self.real_elapsed_time = current_time
+            else:
+                sim_dt = current_sim_time - self.sim_elapsed_time
+                real_dt = current_time - self.real_elapsed_time
+                self.sim_elapsed_time = current_sim_time
+                self.real_elapsed_time = current_time
+
+                self.node.publish_rtf(real_dt, sim_dt)
+
+                state = self.drone._state
+                self.node.publish_gt(state, current_sim_time)
+                self.node.publish_gt_imu(current_sim_time, state)
+                self.node.publish_gt_forces(self.drone.forces, self.drone.rolling_moment)
+
+                imu_frame = self.isaac_imu.get_current_frame()
+                self.node.publish_self_imu(imu_frame)
+
+        if self.physics_stp_cnt >= self.phy_dt / self.pub_dt - 1:
             self.physics_stp_cnt = 0
         else:
             self.physics_stp_cnt += 1
-        return
 
     def run(self):
-        """
-        Method that implements the application main loop, where the physics steps are executed.
-        """
-
-        # Start the simulation
-        #self.timeline.play()
         self.simulation_context.play()
-        # The "infinite" loop
+
         while simulation_app.is_running() and not self.stop_sim:
             simulation_app.update()
-        
-        # Cleanup and stop
+
         self.drone.stop()
         carb.log_warn("Agipix Simulation App is closing.")
         self.simulation_context.stop()
-        #self.timeline.stop()
         simulation_app.close()
+
 
 def parse_cli_args():
     parser = argparse.ArgumentParser(description="Run the Agipix standalone simulation example.")
@@ -462,12 +255,9 @@ def parse_cli_args():
 
 def main():
     args = parse_cli_args()
+    app = AgipixApp(namespace=args.namespace, vehicle_id=args.vehicle_id)
+    app.run()
 
-    # Instantiate the template app
-    pg_app = AgipixApp(namespace=args.namespace, vehicle_id=args.vehicle_id)
-
-    # Run the application loop
-    pg_app.run()
 
 if __name__ == "__main__":
     main()
