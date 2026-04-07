@@ -174,18 +174,17 @@ class AgipixApp:
         
         config_multirotor.graphical_sensors = [
             MonocularCamera(
-                "RealSense_Camera",
+                self.namespace + str(self.id) + "/RealSense_Camera",
                 config={
                     "depth": True,
-                    "raw_calib_mode": True,
-                    "focal_length": 1.93,
                     "f_stop": 0.0,
                     "focus_distance": 0.6,
-                    "vertical_aperture": 2.453,
-                    "horizontal_aperture": 3.896,
                     "position": np.array([0.13, 0.0, -0.022]),
                     "orientation": np.array([180.0, -180.0, 0.0]),
-                    "resolution": (1920, 1200),
+                    "intrinsics": np.array([
+                        [606.3120727539062, 0.0, 314.6913146972656], [0.0, 605.92626953125, 252.1909942626953], [0.0, 0.0, 1.0]
+                    ]),
+                    "resolution": (640, 480),
                     "frequency": 30,
                 }
             )
@@ -258,21 +257,6 @@ class AgipixApp:
         
         
     def create_rtx_lidar(self):
-        # Create the lidar sensor that generates data into "RtxSensorCpu"
-        # Sensor needs to be rotated 90 degrees about X so that its Z up
-
-        # Possible options are Example_Rotary and Example_Solid_State
-        # drive sim applies 0.5,-0.5,-0.5,w(-0.5), we have to apply the reverse
-        # sensor_attributes = {'omni:sensor:Core:scanRateBaseHz': 10}
-        # sensor = LidarRtx(
-        #     prim_path=self.drone._stage_prefix + "/body"+"/sensor",
-        #     #parent=self.drone._stage_prefix + "/body",
-        #     config_file_name="Example_Rotary",
-        #     translation=np.array([self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2] ]),
-        #     orientation=np.array([self.node.lidar_ori[0] , self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]]),  # Gf.Quatd is w,i,j,k
-        #     **sensor_attributes,
-        # )
-        
         # Guard against re-initialization (e.g., script re-run in same Kit session)
         if getattr(self, "_lidar_initialized", False):
             carb.log_warn("RTX Lidar already initialized; skipping duplicate creation.")

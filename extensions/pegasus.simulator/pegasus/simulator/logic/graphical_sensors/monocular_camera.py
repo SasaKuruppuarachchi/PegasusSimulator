@@ -110,9 +110,9 @@ class MonocularCamera(GraphicalSensor):
         self._distortion_coefficients = config.get("distortion_coefficients", None)
         self._diagonal_fov = config.get("diagonal_fov", 140.0)
         
-        self.focal_length = config.get("focal_length", 0.0036)  # meters
-        self.horizontal_aperture = config.get("horizontal_aperture", 0.0032)  # meters
-        self.vertical_aperture = config.get("vertical_aperture", 0.0024)  # meters
+        #self.focal_length = config.get("focal_length", 0.0036)  # meters
+        #self.horizontal_aperture = config.get("horizontal_aperture", 0.0032)  # meters
+        #self.vertical_aperture = config.get("vertical_aperture", 0.0024)  # meters
 
         # Setup an empty camera output dictionary
         self._state = {}
@@ -130,8 +130,8 @@ class MonocularCamera(GraphicalSensor):
         self._stage_prim_path = get_stage_next_free_path(PegasusInterface().world.stage, self._vehicle.prim_path + "/body/" + self._camera_name, False)
 
         # Get the camera name that was actually created (and update the camera name)
-        self._camera_name = self._stage_prim_path.rpartition("/")[-1]
-
+        #self._camera_name = self._stage_prim_path.rsplit("/", 1)[-1]
+        print(f"[MonocularCamera] Initializing camera with name: {self._camera_name} at stage path: {self._stage_prim_path}")
         # Create the camera object attached to the rigid body vehicle
         self._camera = Camera(
             prim_path=self._stage_prim_path,

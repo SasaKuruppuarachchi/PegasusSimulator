@@ -401,7 +401,7 @@ class ROS2Backend(Backend):
 
         # Create the writer for the rgb camera
         writer = rep.writers.get("LdrColorSDROS2PublishImage")
-        writer.initialize(nodeNamespace=self._namespace + str(self._id), topicName=data["camera_name"] + "/color/image_raw", frameId=data["camera_name"], queueSize=1)
+        writer.initialize( topicName=data["camera_name"] + "/color/image_raw", frameId=data["camera_name"], queueSize=1)
         writer.attach([render_prod_path])
 
         # Add the writer to the dictionary
@@ -412,7 +412,7 @@ class ROS2Backend(Backend):
 
             # Create the writer for the depth camera
             writer_depth = rep.writers.get("DistanceToImagePlaneSDROS2PublishImage")
-            writer_depth.initialize(nodeNamespace=self._namespace + str(self._id), topicName=data["camera_name"] + "/depth", frameId=data["camera_name"], queueSize=1)
+            writer_depth.initialize( topicName=data["camera_name"] + "/depth", frameId=data["camera_name"], queueSize=1)
             writer_depth.attach([render_prod_path])
 
             # Add the writer to the dictionary
