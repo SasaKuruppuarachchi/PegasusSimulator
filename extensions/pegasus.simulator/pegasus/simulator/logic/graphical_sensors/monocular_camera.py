@@ -120,6 +120,7 @@ class MonocularCamera(GraphicalSensor):
 
         # Check if depth is enabled, if so, set the depth properties
         if self._depth:
+            print("CAMERA: Enabling depth for the monocular camera")
             self._camera.add_distance_to_image_plane_to_frame()
 
         # Signal that the camera is fully set

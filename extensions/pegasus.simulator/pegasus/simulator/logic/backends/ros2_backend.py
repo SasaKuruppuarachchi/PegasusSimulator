@@ -408,8 +408,8 @@ class ROS2Backend(Backend):
         self.graphical_sensors_writers[data["camera_name"]] = [writer]
 
         # Check if depth is enabled, if so, set the depth properties
-        if "depth" in data:
-
+        if "depth" in data and data["depth"]:
+            print("CAMERA: Publishing depth for the monocular camera as depth in data is", data["depth"])
             # Create the writer for the depth camera
             writer_depth = rep.writers.get("DistanceToImagePlaneSDROS2PublishImage")
             writer_depth.initialize(nodeNamespace=self._namespace + str(self._id), topicName=data["camera_name"] + "/depth", frameId=data["camera_name"], queueSize=1)
