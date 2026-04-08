@@ -24,8 +24,8 @@ from omni.isaac.core.world import World
 from isaacsim.core.utils.extensions import enable_extension, disable_extension
 
 # Enable/disable ROS bridge extensions to keep only ROS2 Bridge
-enable_extension("isaacsim.ros2.bridge")
 disable_extension("isaacsim.ros2.bridge")
+enable_extension("isaacsim.ros2.bridge")
 
 enable_extension("omni.anim.graph.core")
 enable_extension("omni.anim.graph.ui")
@@ -107,7 +107,7 @@ class PegasusApp:
 
         # Launch one of the worlds provided by NVIDIA
         #self.pg.load_environment(SIMULATION_ENVIRONMENTS["Curved Gridroom"])
-        self.pg.load_asset(SIMULATION_ENVIRONMENTS["Curved Gridroom"], "/World/layout")
+        self.pg.load_asset(SIMULATION_ENVIRONMENTS["Full Warehouse"], "/World/layout")
 
         # Check the available assets for people
         people_assets_list = Person.get_character_asset_list()
@@ -127,7 +127,7 @@ class PegasusApp:
         mavlink_config = PX4MavlinkBackendConfig({
             "vehicle_id": 0,
             "px4_autolaunch": True,
-            "px4_dir": "/home/marcelo/PX4-Autopilot"
+            "px4_dir": "/home/sasa/PX4-Autopilot"
         })
 
         config_multirotor.backends = [
