@@ -41,3 +41,9 @@ _build
 build/
 install/
 log/
+.agent-memory/
+.github/agents
+.github/skills
+.guides/
+ideas/
+.vscode/
