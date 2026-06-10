@@ -457,6 +457,20 @@ class ROS2Backend(Backend):
 
         # List all the available writers: print(rep.writers.WriterRegistry._writers)
         render_prod_path = rep.create.render_product(data["stage_prim_path"], [1, 1], name=data["lidar_name"])
+        # # Create annotator
+        # annotator = rep.AnnotatorRegistry.get_annotator(
+        #     "IsaacCreateRTXLidarScanBuffer"
+        # )
+
+        # # Enable desired outputs BEFORE attach
+        # annotator.initialize(
+        #     outputIntensity=True,
+        #     outputTimestamp=True,
+        # )
+
+        # # Attach annotator
+        # annotator.attach([render_prod_path])
+        
         print("Render product path: ", render_prod_path)
         # Create the writer for the lidar
         writer = rep.writers.get("RtxLidarROS2PublishPointCloud")

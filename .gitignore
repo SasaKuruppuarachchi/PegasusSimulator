@@ -43,3 +43,10 @@ install/
 log/
 
 .vscode/
+.agent-memory/
+.github/agents
+.github/skills
+ideas/
+.vscode/
+.agent-memory/
+.guides/

@@ -71,6 +71,8 @@ class Lidar(GraphicalSensor):
             orientation=Gf.Quatd(self._orientation[0], self._orientation[1], self._orientation[2], self._orientation[3]),
             force_camera_prim=False,
         )
+        
+        #self._sensor.attach_annotator("IsaacCreateRTXLidarScanBuffer", outputIntensity=True, outputTimestamp=True, outputChannelId=True)
     
     def start(self):
 
