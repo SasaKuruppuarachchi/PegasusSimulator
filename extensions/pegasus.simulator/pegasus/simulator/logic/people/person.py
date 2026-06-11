@@ -15,10 +15,17 @@ from pxr import Gf, Sdf
 # High level Isaac sim APIs
 import omni.client
 import omni.anim.graph.core as ag
-from omni.anim.people import PeopleSettings
 from isaacsim.core.api.utils import prims
 from omni.usd import get_stage_next_free_path
 from isaacsim.storage.native import get_assets_root_path
+
+# Isaac Sim 6.0: omni.anim.people replaced by omni.anim.behavior.core
+# PeopleSettings constants are now defined inline
+class _PeopleSettings:
+    CHARACTER_ASSETS_PATH = "/exts/omni.anim.behavior.core/character_assets_path"
+    CHARACTER_PRIM_PATH = "/exts/omni.anim.behavior.core/character_prim_path"
+
+PeopleSettings = _PeopleSettings()
 
 # Extension APIs
 from pegasus.simulator.logic.state import State

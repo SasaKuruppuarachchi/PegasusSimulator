@@ -11,17 +11,19 @@ import argparse
 import sys
 
 import carb
-from omni.isaac.kit import SimulationApp
+from isaacsim import SimulationApp
 
 # Example for creating a RTX lidar sensor and publishing PointCloud2 data
 simulation_app = SimulationApp({"headless": False})
 import omni
 import omni.kit.viewport.utility
 import omni.replicator.core as rep
+import numpy as np
 from isaacsim.core.api import SimulationContext
-from isaacsim.core.api.utils import nucleus, stage
+import isaacsim.storage.native as nucleus
+from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.utils.extensions import enable_extension
-from pxr import Gf
+from isaacsim.sensors.experimental.rtx import Lidar
 
 # enable ROS2 bridge extension
 enable_extension("isaacsim.ros2.bridge")
@@ -38,7 +40,7 @@ if assets_root_path is None:
 
 simulation_app.update()
 # Loading the simple_room environment
-stage.add_reference_to_stage(
+add_reference_to_stage(
     assets_root_path + "/Isaac/Environments/Simple_Warehouse/full_warehouse.usd", "/background"
 )
 simulation_app.update()
@@ -48,17 +50,15 @@ simulation_app.update()
 
 # Possible options are Example_Rotary and Example_Solid_State
 # drive sim applies 0.5,-0.5,-0.5,w(-0.5), we have to apply the reverse
-_, sensor = omni.kit.commands.execute(
-    "IsaacSensorCreateRtxLidar",
+lidar_prim = Lidar.create(
     path="/sensor",
-    parent=None,
     config="Example_Rotary",
-    translation=(0, 0, 1.0),
-    orientation=Gf.Quatd(1.0, 0.0, 0.0, 0.0),  # Gf.Quatd is w,i,j,k
+    translations=np.array([[0.0, 0.0, 1.0]]),
+    orientations=np.array([[1.0, 0.0, 0.0, 0.0]]),  # [w,x,y,z]
 )
 
 # RTX sensors are cameras and must be assigned to their own render product
-hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
+hydra_texture = rep.create.render_product(lidar_prim.GetPath(), [1, 1], name="Isaac")
 
 simulation_context = SimulationContext(physics_dt=1.0 / 300.0, rendering_dt=1.0 / 30.0, stage_units_in_meters=1.0)
 simulation_app.update()

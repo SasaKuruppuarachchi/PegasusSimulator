@@ -23,7 +23,7 @@ from isaacsim.core.api.world import World
 from isaacsim.core.utils.extensions import disable_extension, enable_extension
 
 EXTENSIONS_PEOPLE = [
-    'omni.anim.people', 
+    'omni.anim.behavior.core', 
     #'omni.anim.navigation.bundle', 
     'omni.anim.timeline',
     'omni.anim.graph.bundle', 

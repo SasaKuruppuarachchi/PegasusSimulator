@@ -10,11 +10,10 @@ from isaacsim.core.api.utils import stage
 import omni.graph.core as og
 from isaacsim.core.utils.prims import is_prim_path_valid
 from isaacsim.core.utils.prims import set_targets
-from isaacsim.sensors.camera import Camera
+from pxr import Gf, UsdGeom
 
 from pegasus.simulator.logic.graphs import Graph
 from pegasus.simulator.logic.vehicles import Vehicle
-from scipy.spatial.transform import Rotation
 import numpy as np
 
 class ROS2CameraGraph(Graph):
@@ -78,17 +77,14 @@ class ROS2CameraGraph(Graph):
         if self._camera_prim_path[0] != '/':
             self._camera_prim_path = f"{vehicle.prim_path}/{self._camera_prim_path}"
 
-        # Create the camera object attached to the vehicle
-        self.camera = Camera(
-            prim_path=self._camera_prim_path,
-            position=np.array([0.30, 0.0, 0.0]),
-            frequency=30.0,
-            resolution=self._resolution,
-            orientation=Rotation.from_euler("ZYX", [0.0, 0.0, 0.0], degrees=True).as_quat()
-        )
-
-        # Initialize the camera sensor
-        self.camera.initialize()
+        # Create camera prim if it does not exist
+        current_stage = stage.get_current_stage()
+        if not is_prim_path_valid(self._camera_prim_path):
+            camera_prim = current_stage.DefinePrim(self._camera_prim_path, "Camera")
+            xformable = UsdGeom.Xformable(camera_prim)
+            xformable.ClearXformOpOrder()
+            xformable.AddTranslateOp().Set(Gf.Vec3d(0.30, 0.0, 0.0))
+            xformable.AddOrientOp().Set(Gf.Quatf(1.0, 0.0, 0.0, 0.0))
 
         # Create camera prism
         if not is_prim_path_valid(self._camera_prim_path):

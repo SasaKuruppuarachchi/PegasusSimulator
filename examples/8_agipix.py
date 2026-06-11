@@ -57,15 +57,14 @@ sys.path.append(os.path.dirname(__file__))  # Also add current dir for sibling i
 
 from drone_location_pub import DroneLocationPublisher
 # lidar
-from isaacsim.sensors.rtx import LidarRtx
-from isaacsim.sensors.physics import IMUSensor
+from isaacsim.sensors.experimental.rtx import Lidar, LidarSensor
+from isaacsim.sensors.experimental.physics import IMUSensor, IMU
 import omni
 import omni.kit.viewport.utility
 import omni.replicator.core as rep
 from isaacsim.core.api import SimulationContext
 from isaacsim.core.utils.stage import create_new_stage_async, update_stage_async
 import isaacsim.storage.native as nucleus
-from pxr import Gf
 
 
 GRAVITY = 9.81
@@ -218,15 +217,17 @@ class AgipixApp:
         pass    # Auxiliar variable for the timeline callback example
         
     def create_imu_sensor(self):
+        import numpy as np
+        imu_prim_path = self.drone._stage_prefix + "/body/Imu"
         self.isaac_imu = IMUSensor(
-            prim_path=self.drone._stage_prefix + "/body" + "/Imu",
-            name="imu",
-            frequency=100,
-            translation=np.array([0, 0, 0]),
-            orientation=np.array([0, -1, 0, 0]), # [w,x,y,z]
-            linear_acceleration_filter_size = 10,
-            angular_velocity_filter_size = 10,
-            orientation_filter_size = 10,
+            IMU.create(
+                path=imu_prim_path,
+                translations=np.array([[0, 0, 0]]),
+                orientations=np.array([[0, -1, 0, 0]]),  # [w,x,y,z]
+                linear_acceleration_filter_size=10,
+                angular_velocity_filter_size=10,
+                orientation_filter_size=10,
+            )
         )
         
     def create_rtx_lidar( self,
@@ -243,19 +244,14 @@ class AgipixApp:
             orientation (list, optional): Euler angles specifying sensor orientation. Defaults to [0.0, 0.0, 0.0].
             config_file_name (str, optional): Name of sensor config file. Defaults to "Example_Rotary".
         """
-        sensor = LidarRtx(
-            prim_path=prim_path,
-            position=np.array(position),
-            orientation=np.array(orientation),
-            config_file_name=config_file_name,
+        # orientation expected as [w,x,y,z]
+        lidar_prim = Lidar.create(
+            path=prim_path,
+            config=config_file_name,
+            translations=np.array([[position[0], position[1], position[2]]]),
+            orientations=np.array([[orientation[0], orientation[1], orientation[2], orientation[3]]]),
         )
-        sensor.initialize()
-        sensor.add_range_data_to_frame()
-        sensor.add_elevation_data_to_frame()
-        sensor.add_azimuth_data_to_frame()
-        sensor.add_linear_depth_data_to_frame()
-        sensor.add_azimuth_range_to_frame()
-        sensor.add_horizontal_resolution_to_frame()
+        sensor = LidarSensor(lidar_prim, annotators=["generic-model-output"])
         return sensor
         
         
@@ -266,17 +262,16 @@ class AgipixApp:
 
         # Possible options are Example_Rotary and Example_Solid_State
         # drive sim applies 0.5,-0.5,-0.5,w(-0.5), we have to apply the reverse
-        _, sensor = omni.kit.commands.execute(
-            "IsaacSensorCreateRtxLidar",
+        lidar_prim = Lidar.create(
             path="/sensor",
             parent=self.drone._stage_prefix + "/body",
             config="approx_mid_360",
-            translation=(self.node.lidar_trans[0] , self.node.lidar_trans[1] ,self.node.lidar_trans[2] ),
-            orientation=Gf.Quatd(self.node.lidar_ori[0] , self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]),  # Gf.Quatd is w,i,j,k
+            translations=np.array([[self.node.lidar_trans[0], self.node.lidar_trans[1], self.node.lidar_trans[2]]]),
+            orientations=np.array([[self.node.lidar_ori[0], self.node.lidar_ori[1], self.node.lidar_ori[2], self.node.lidar_ori[3]]]),
         )
 
         # RTX sensors are cameras and must be assigned to their own render product
-        hydra_texture = rep.create.render_product(sensor.GetPath(), [1, 1], name="Isaac")
+        hydra_texture = rep.create.render_product(lidar_prim.GetPath(), [1, 1], name="Isaac")
 
         self.simulation_context = SimulationContext(physics_dt=1.0 / self.phy_dt, rendering_dt=1.0 / self.rendering_dt, stage_units_in_meters=1.0)
         simulation_app.update()
@@ -391,7 +386,7 @@ class AgipixApp:
             # weight of the system 1.657 Kg . Total Thrust at hover = 16.256 N, Mass Normalised = 9.81 N/Kg
             
             # publish own_imu
-            imu_frame = self.isaac_imu.get_current_frame()
+            imu_frame = self.isaac_imu.get_data()
             self.node.publish_self_imu(imu_frame)
             
             

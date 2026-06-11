@@ -46,7 +46,6 @@ from scipy.spatial.transform import Rotation
 # Use pathlib for parsing the desired trajectory from a CSV file
 from pathlib import Path
 
-from isaacsim.util.debug_draw import _debug_draw
 
 
 class PegasusApp:
@@ -132,12 +131,15 @@ class PegasusApp:
         trajectory1 = [config_multirotor1.backends[0].pd(gamma[i], 0.6) for i in range(num_samples)]
         trajectory2 = [config_multirotor2.backends[0].pd(gamma[i], 0.6, reverse=True) for i in range(num_samples)]
 
-        draw = _debug_draw.acquire_debug_draw_interface()
         point_list_1 = [(trajectory1[i][0], trajectory1[i][1], trajectory1[i][2]) for i in range(num_samples)]
-        draw.draw_lines_spline(point_list_1, (31/255, 119/255, 180/255, 1), 5, False)
-
         point_list_2 = [(trajectory2[i][0], trajectory2[i][1], trajectory2[i][2]) for i in range(num_samples)]
-        draw.draw_lines_spline(point_list_2, (255/255, 0, 0, 1), 5, False)
+        try:
+            import omni.debugdraw
+            draw = omni.debugdraw.get_debug_draw_interface()
+            draw.draw_lines_spline(point_list_1, (31/255, 119/255, 180/255, 1), 5, False)
+            draw.draw_lines_spline(point_list_2, (255/255, 0, 0, 1), 5, False)
+        except Exception:
+            carb.log_warn("Debug draw not available - trajectory visualization skipped")
 
         # Reset the world
         self.world.reset()

@@ -18,7 +18,7 @@ import omni.usd
 from isaacsim.core.utils.prims import define_prim, get_prim_at_path
 from omni.usd import get_stage_next_free_path
 from isaacsim.core.api.robots.robot import Robot
-from omni.isaac.dynamic_control import _dynamic_control
+from isaacsim.core.experimental.prims import RigidPrim
 
 # Extension APIs
 from pegasus.simulator.logic.state import State
@@ -94,8 +94,6 @@ class Vehicle(Robot):
             articulation_controller=None,
         )
 
-        self._vehicle_dc_interface = None
-
         # Add this object for the world to track, so that if we clear the world, this object is deleted from memory and
         # as a consequence, from the VehicleManager as well
         self._world.scene.add(self)
@@ -116,6 +114,13 @@ class Vehicle(Robot):
 
         # Set the flag that signals if the simulation is running or not
         self._sim_running = False
+
+        # Cache for RigidBodyPrim instances, initialized on first physics step
+        self._rigid_body_prims = {}
+        self._physics_sim_view = None
+
+        # Flag to track whether Robot.initialize() (ArticulationController) has been called
+        self._articulation_initialized = False
 
         # Add a callback to start/stop of the simulation once the play/stop button is hit
         self._world.add_timeline_callback(self._stage_prefix + "/start_stop_sim", self.sim_start_stop)
@@ -200,6 +205,15 @@ class Vehicle(Robot):
     Operations
     """
 
+    def initialize(self, physics_sim_view=None):
+        """Called by world.reset() via scene._finalize() to initialize the Robot
+        and its ArticulationController with the physics simulation view.
+        In Isaac Sim 6.0, this must be triggered by world.reset(), not manually,
+        because the physics_sim_view is only valid during/after world.reset().
+        """
+        super().initialize(physics_sim_view=physics_sim_view)
+        self._articulation_initialized = True
+
     def sim_start_stop(self, event):
         """
         Callback that is called every time there is a timeline event such as starting/stoping the simulation.
@@ -230,9 +244,6 @@ class Vehicle(Robot):
         if self._world.is_stopped() and self._sim_running == True:
             self._sim_running = False
 
-            # Reset the DC interface
-            self._vehicle_dc_interface = None
-
             # Stop the sensors
             for sensor in self._sensors:
                 sensor.stop()
@@ -245,7 +256,21 @@ class Vehicle(Robot):
             for backend in self._backends:
                 backend.stop()
 
+            # Reset the rigid body prim cache and articulation init flag on stop
+            self._rigid_body_prims = {}
+            self._articulation_initialized = False
+
             self.stop()
+
+    def _get_rigid_body_prim(self, body_part: str):
+        """
+        Returns a cached RigidPrim for the given body_part.
+        Uses isaacsim.core.experimental.prims.RigidPrim which handles
+        physics initialization internally (no create_simulation_view needed).
+        """
+        if body_part not in self._rigid_body_prims:
+            self._rigid_body_prims[body_part] = RigidPrim(self._stage_prefix + body_part)
+        return self._rigid_body_prims[body_part]
 
     def apply_force(self, force, pos=[0.0, 0.0, 0.0], body_part="/body"):
         """
@@ -258,11 +283,14 @@ class Vehicle(Robot):
             body_part (str): . Defaults to "/body".
         """
 
-        # Get the handle of the rigidbody that we will apply the force to
-        rb = self.get_dc_interface().get_rigid_body(self._stage_prefix + body_part)
-
-        # Apply the force to the rigidbody. The force should be expressed in the rigidbody frame
-        self.get_dc_interface().apply_body_force(rb, carb._carb.Float3(force), carb._carb.Float3(pos), False)
+        rb = self._get_rigid_body_prim(body_part)
+        if not rb.is_physics_tensor_entity_valid():
+            return
+        rb.apply_forces_and_torques_at_pos(
+            forces=np.array([force]),
+            positions=np.array([pos]),
+            local_frame=True
+        )
 
     def apply_torque(self, torque, body_part="/body"):
         """
@@ -273,11 +301,13 @@ class Vehicle(Robot):
             body_part (str): . Defaults to "/body".
         """
 
-        # Get the handle of the rigidbody that we will apply a torque to
-        rb = self.get_dc_interface().get_rigid_body(self._stage_prefix + body_part)
-
-        # Apply the torque to the rigidbody. The torque should be expressed in the rigidbody frame
-        self.get_dc_interface().apply_body_torque(rb, carb._carb.Float3(torque), False)
+        rb = self._get_rigid_body_prim(body_part)
+        if not rb.is_physics_tensor_entity_valid():
+            return
+        rb.apply_forces_and_torques_at_pos(
+            torques=np.array([torque]),
+            local_frame=True
+        )
 
     def update_state(self, dt: float):
         """
@@ -288,30 +318,40 @@ class Vehicle(Robot):
             dt (float): The time elapsed between the previous and current function calls (s).
         """
 
-        # Get the body frame interface of the vehicle (this will be the frame used to get the position, orientation, etc.)
-        body = self.get_dc_interface().get_rigid_body(self._stage_prefix + "/body")
+        # In Isaac Sim 6.0, the ArticulationController is initialized by world.reset()
+        # via scene._finalize(), which calls Vehicle.initialize() with a valid physics_sim_view.
+        # If world.reset() has not been called yet, skip state updates until it is.
+        if not self._articulation_initialized:
+            return
 
-        # Get the current position and orientation in the inertial frame
-        pose = self.get_dc_interface().get_rigid_body_pose(body)
+        rb = self._get_rigid_body_prim("/body")
 
-        # Get the attitude according to the convention [w, x, y, z]
+        # Always get attitude via USD world transform (available immediately)
         prim = self._world.stage.GetPrimAtPath(self._stage_prefix + "/body")
         rotation_quat = get_world_transform_xform(prim).GetQuaternion()
         rotation_quat_real = rotation_quat.GetReal()
         rotation_quat_img = rotation_quat.GetImaginary()
 
-        # Get the angular velocity of the vehicle expressed in the body frame of reference
-        ang_vel = self.get_dc_interface().get_rigid_body_angular_velocity(body)
-
-        # The linear velocity [x_dot, y_dot, z_dot] of the vehicle's body frame expressed in the inertial frame of reference
-        linear_vel = self.get_dc_interface().get_rigid_body_linear_velocity(body)
+        if rb.is_physics_tensor_entity_valid():
+            # Get position and velocities from the physics tensor API
+            positions, _ = rb.get_world_poses()
+            position = np.array(positions[0])
+            linear_vels, angular_vels = rb.get_velocities()
+            linear_vel = np.array(linear_vels[0])
+            ang_vel = np.array(angular_vels[0])
+        else:
+            # Physics tensor not ready yet — fall back to USD world transform for position, zero velocities
+            world_transform: Gf.Matrix4d = omni.usd.get_world_transform_matrix(prim)
+            position = np.array(world_transform.ExtractTranslation())
+            linear_vel = np.zeros(3)
+            ang_vel = np.zeros(3)
 
         # Get the linear acceleration of the body relative to the inertial frame, expressed in the inertial frame
         # Note: we must do this approximation, since the Isaac sim does not output the acceleration of the rigid body directly
         linear_acceleration = (np.array(linear_vel) - self._state.linear_velocity) / dt
 
         # Update the state variable X = [x,y,z]
-        self._state.position = np.array(pose.p)
+        self._state.position = np.array(position)
 
         # Get the quaternion according in the [qx,qy,qz,qw] standard
         self._state.attitude = np.array(
@@ -404,10 +444,3 @@ class Vehicle(Robot):
         """
         for backend in self._backends:
             backend.update_state(self._state)
-
-    def get_dc_interface(self):
-
-        if self._vehicle_dc_interface is None:
-            self._vehicle_dc_interface = _dynamic_control.acquire_dynamic_control_interface()
-
-        return self._vehicle_dc_interface

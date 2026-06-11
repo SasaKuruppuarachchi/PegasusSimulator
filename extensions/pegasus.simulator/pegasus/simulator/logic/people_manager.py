@@ -104,6 +104,7 @@ class PeopleManager:
 
         PeopleManager._people.clear()
 
+    @staticmethod
     def rebuild_nav_mesh(height=1.5, radius=0.5, auto_rebake_on_changes=False, auto_rebake_delay_seconds=4, exclude_rigid_bodies=True, view_nav_mesh=False, dynamic_avoidance_enabled=False, navmesh_enabled=False):
         """
         Rebuild the navmesh with the correct settings. Used for the people to move around.
@@ -143,11 +144,11 @@ class PeopleManager:
         # Setup for obstacle avoidance
         omni.kit.commands.execute(
             'ChangeSetting',
-            path='/exts/omni.anim.people/navigation_settings/dynamic_avoidance_enabled',
+            path='/exts/omni.anim.behavior.core/navigation_settings/dynamic_avoidance_enabled',
             value=dynamic_avoidance_enabled)
         omni.kit.commands.execute(
             'ChangeSetting',
-            path='/exts/omni.anim.people/navigation_settings/navmesh_enabled',
+            path='/exts/omni.anim.behavior.core/navigation_settings/navmesh_enabled',
             value=navmesh_enabled)
 
     def __new__(cls):

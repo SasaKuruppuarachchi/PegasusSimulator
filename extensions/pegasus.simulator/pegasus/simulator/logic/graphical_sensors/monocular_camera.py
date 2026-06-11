@@ -10,7 +10,8 @@ from pegasus.simulator.logic.state import State
 from pegasus.simulator.logic.graphical_sensors import GraphicalSensor
 from pegasus.simulator.logic.interface.pegasus_interface import PegasusInterface
 
-from isaacsim.sensors.camera import Camera
+import omni.replicator.core as rep
+from pxr import UsdGeom
 from omni.usd import get_stage_next_free_path
 
 # Auxiliary scipy and numpy modules
@@ -66,6 +67,9 @@ class MonocularCamera(GraphicalSensor):
         # Setup an empty camera output dictionary
         self._state = {}
         self._camera_full_set = False
+        self._render_product = None
+        self._render_product_path = None
+        self._camera_prim = None
 
         self.counter = 0
 
@@ -81,32 +85,29 @@ class MonocularCamera(GraphicalSensor):
         # Get the camera name that was actually created (and update the camera name)
         self._camera_name = self._stage_prim_path.rpartition("/")[-1]
 
-        # Create the camera object attached to the rigid body vehicle
-        self._camera = Camera(
-            prim_path=self._stage_prim_path,
-            frequency=self._frequency,
-            resolution=self._resolution)
-        
-        # Set the camera position locally with respect to the drone
-        self._camera.set_local_pose(np.array(self._position), Rotation.from_euler("ZYX", self._orientation, degrees=True).as_quat())
+        # Create a camera prim using USD (standard USD camera)
+        stage = PegasusInterface().world.stage
+        camera_prim = stage.DefinePrim(self._stage_prim_path, "Camera")
+        self._camera_prim = camera_prim
+
+        # Set camera position/orientation using USD attributes
+        from pxr import Gf
+        xformable = UsdGeom.Xformable(camera_prim)
+        xformable.ClearXformOpOrder()
+        translate_op = xformable.AddTranslateOp()
+        translate_op.Set(Gf.Vec3d(float(self._position[0]), float(self._position[1]), float(self._position[2])))
+        orient_op = xformable.AddOrientOp()
+        orient_scipy = Rotation.from_euler("ZYX", self._orientation, degrees=True).as_quat()  # [x, y, z, w]
+        orient_op.Set(Gf.Quatf(float(orient_scipy[3]), float(orient_scipy[0]), float(orient_scipy[1]), float(orient_scipy[2])))
         
     def start(self):
 
         # Set the camera intrinsics
         ((fx,_,cx),(_,fy,cy),(_,_,_)) = self._intrinsics
 
-        # Start the camera
-        self._camera.initialize()
-
-        # Set the correct properties of the camera (this must be done after the camera object is initialized)
-        #self._camera.set_projection_type("pinhole")
-        #self._camera.set_projection_type("fisheyePolynomial")  # # f-theta model, to approximate the fisheye model
-        #self._camera.set_rational_polynomial_properties(self._resolution[0], self._resolution[1], cx, cy, self._diagonal_fov, self._distortion_coefficients)
-        #self._camera.set_clipping_range(0.05, 100.0)
-
-        # Check if depth is enabled, if so, set the depth properties
-        if self._depth:
-            self._camera.add_distance_to_image_plane_to_frame()
+        # Create render product for the camera
+        self._render_product = rep.create.render_product(self._stage_prim_path, self._resolution)
+        self._render_product_path = self._render_product.path
 
         # Signal that the camera is fully set
         self._camera_full_set = True
@@ -148,18 +149,28 @@ class MonocularCamera(GraphicalSensor):
             self._state = {}
             self._state["camera_name"] = self._camera_name
             self._state["stage_prim_path"] = self._stage_prim_path
+            self._state["render_product_path"] = self._render_product_path
             #self._state["image"] = self._camera.get_rgba()[:, :, :3]
             self._state["height"] = self._resolution[1]
             self._state["width"] = self._resolution[0]
             self._state["frequency"] = self._frequency
-            self._state["camera"] = self._camera
 
             # Check if we want to get the depth image
             #if self._depth:
             #    self._state["depth"] = self._camera.get_depth()
 
-            if self._camera.get_projection_type() == "pinhole":
-                self._state["intrinsics"] = self._camera.get_intrinsics_matrix()
+            camera_prim = PegasusInterface().world.stage.GetPrimAtPath(self._stage_prim_path)
+            projection = camera_prim.GetAttribute("projection").Get()
+            if projection == "perspective":
+                focal_length = camera_prim.GetAttribute("focalLength").Get()
+                h_aperture = camera_prim.GetAttribute("horizontalAperture").Get()
+                v_aperture = camera_prim.GetAttribute("verticalAperture").Get()
+                if focal_length and h_aperture and v_aperture:
+                    fx = focal_length * self._resolution[0] / h_aperture
+                    fy = focal_length * self._resolution[1] / v_aperture
+                    cx = self._resolution[0] / 2.0
+                    cy = self._resolution[1] / 2.0
+                    self._state["intrinsics"] = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
             
         # If something goes wrong during the data acquisition, just return None
         except:

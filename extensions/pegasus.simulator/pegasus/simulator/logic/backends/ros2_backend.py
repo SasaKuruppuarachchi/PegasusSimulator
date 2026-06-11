@@ -33,7 +33,7 @@ from pegasus.simulator.logic.backends.backend import Backend
 import omni
 import omni.graph.core as og
 import omni.replicator.core as rep
-from isaacsim.ros2.bridge import read_camera_info
+import numpy as np
 
 
 class ROS2Backend(Backend):
@@ -395,7 +395,7 @@ class ROS2Backend(Backend):
     def add_monocular_camera_writter(self, data):
 
         # List all the available writers: print(rep.writers.WriterRegistry._writers)
-        render_prod_path = data["camera"]._render_product_path
+        render_prod_path = data["render_product_path"]
 
         # Create the writer for the rgb camera
         writer = rep.writers.get("LdrColorSDROS2PublishImage")
@@ -418,7 +418,28 @@ class ROS2Backend(Backend):
 
         # Create a writer for publishing the camera info
         writer_info = rep.writers.get("ROS2PublishCameraInfo")
-        camera_info = read_camera_info(render_product_path=render_prod_path)
+        try:
+            from isaacsim.ros2.bridge import read_camera_info
+            camera_info = read_camera_info(render_product_path=render_prod_path)
+        except Exception:
+            width = data.get("width", 0)
+            height = data.get("height", 0)
+            intrinsics = data.get("intrinsics", None)
+            k = np.eye(3) if intrinsics is None else intrinsics
+            camera_info = {
+                "width": width,
+                "height": height,
+                "projectionType": "perspective",
+                "k": k,
+                "r": np.eye(3),
+                "p": np.array([
+                    [k[0, 0], 0.0, k[0, 2], 0.0],
+                    [0.0, k[1, 1], k[1, 2], 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ]),
+                "physicalDistortionModel": "",
+                "physicalDistortionCoefficients": np.array([]),
+            }
         writer_info.initialize(
             nodeNamespace=self._namespace + str(self._id), 
             topicName=data["camera_name"] + "/color/camera_info", 
@@ -439,10 +460,14 @@ class ROS2Backend(Backend):
         # Add the writer to the dictionary
         self.graphical_sensors_writers[data["camera_name"]].append(writer_info)
 
-        gate_path = omni.syntheticdata.SyntheticData._get_node_path("PostProcessDispatch" + "IsaacSimulationGate", render_prod_path)
-
-        # Set step input of the Isaac Simulation Gate nodes upstream of ROS publishers to control their execution rate
-        og.Controller.attribute(gate_path + ".inputs:step").set(int(60/data["frequency"]))
+        try:
+            import isaacsim.core.synthetic_data as synthetic_data
+            gate_path = synthetic_data.SyntheticData._get_node_path(
+                "PostProcessDispatch" + "IsaacSimulationGate", render_prod_path
+            )
+            og.Controller.attribute(gate_path + ".inputs:step").set(int(60/data["frequency"]))
+        except Exception:
+            carb.log_warn("Could not set simulation gate step rate for camera - continuing without rate control")
 
     def update_lidar_data(self, data):
 

@@ -299,6 +299,11 @@ class UIDelegate:
                     config=config_multirotor,
                 )
 
+                # In Isaac Sim 6.0, world.reset() must be called after adding objects to the scene
+                # to trigger Robot.initialize() via scene._finalize(), which initializes the ArticulationController.
+                await self._pegasus_sim.world.reset_async()
+                await self._pegasus_sim.world.stop_async()
+
             # Log that a vehicle of the type multirotor was spawned in the world via the extension UI
                 carb.log_info("Spawned the robot: " + selected_robot + " using the Pegasus Simulator UI")
             else:
@@ -322,7 +327,7 @@ class UIDelegate:
             if camera_position is not None and camera_target is not None:
 
                 # Set the camera view to a fixed value
-                self._pegasus_sim.set_viewport_camera(eye=camera_position, target=camera_target)
+                self._pegasus_sim.set_viewport_camera(camera_position, camera_target)
     
     def on_set_new_default_px4_path(self):
         """

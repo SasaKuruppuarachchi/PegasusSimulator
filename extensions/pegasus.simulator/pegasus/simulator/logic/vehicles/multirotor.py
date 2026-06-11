@@ -7,7 +7,9 @@
 
 import numpy as np
 
-from omni.isaac.dynamic_control import _dynamic_control
+from isaacsim.core.utils.types import ArticulationAction
+import omni.usd
+from pxr import UsdGeom
 
 # The vehicle interface
 from pegasus.simulator.logic.vehicles.vehicle import Vehicle
@@ -109,9 +111,6 @@ class Multirotor(Vehicle):
             dt (float): The time elapsed between the previous and current function calls (s).
         """
 
-        # Get the articulation root of the vehicle
-        articulation = self.get_dc_interface().get_articulation(self._stage_prefix)
-
         # Get the desired angular velocities for each rotor from the first backend (can be mavlink or other) expressed in rad/s
         if len(self._backends) != 0:
             desired_rotor_velocities = self._backends[0].input_reference()
@@ -132,7 +131,7 @@ class Multirotor(Vehicle):
             self.apply_force([0.0, 0.0, forces_z[i]], body_part="/rotor" + str(i))
 
             # Generate the rotating propeller visual effect
-            self.handle_propeller_visual(i, forces_z[i], articulation)
+            self.handle_propeller_visual(i, forces_z[i])
 
         # Apply the torque to the body frame of the vehicle that corresponds to the rolling moment
         self.apply_torque([0.0, 0.0, rolling_moment], "/body")
@@ -146,7 +145,7 @@ class Multirotor(Vehicle):
             if backend is not None:
                 backend.update(dt)
 
-    def handle_propeller_visual(self, rotor_number, force: float, articulation):
+    def handle_propeller_visual(self, rotor_number, force: float):
         """
         Auxiliar method used to set the joint velocity of each rotor (for animation purposes) based on the 
         amount of force being applied on each joint
@@ -154,21 +153,28 @@ class Multirotor(Vehicle):
         Args:
             rotor_number (int): The number of the rotor to generate the rotation animation
             force (float): The force that is being applied on that rotor
-            articulation (_type_): The articulation group the joints of the rotors belong to
         """
-
-        # Rotate the joint to yield the visual of a rotor spinning (for animation purposes only)
-        joint = self.get_dc_interface().find_articulation_dof(articulation, "joint" + str(rotor_number))
 
         # Spinning when armed but not applying force
         if 0.0 < force < 0.1:
-            self.get_dc_interface().set_dof_velocity(joint, 5 * -self._thrusters.rot_dir[rotor_number])
+            velocity = 5.0 * -self._thrusters.rot_dir[rotor_number]
         # Spinning when armed and applying force
         elif 0.1 <= force:
-            self.get_dc_interface().set_dof_velocity(joint, 100 * -self._thrusters.rot_dir[rotor_number])
+            velocity = 100.0 * -self._thrusters.rot_dir[rotor_number]
         # Not spinning
         else:
-            self.get_dc_interface().set_dof_velocity(joint, 0)
+            velocity = 0.0
+
+        try:
+            dof_index = self.get_dof_index("joint" + str(rotor_number))
+            self.get_articulation_controller().apply_action(
+                ArticulationAction(
+                    joint_velocities=[velocity],
+                    joint_indices=[dof_index]
+                )
+            )
+        except RuntimeError:
+            pass
 
     def force_and_torques_to_velocities(self, force: float, torque: np.ndarray):
         """
@@ -186,14 +192,20 @@ class Multirotor(Vehicle):
             list: A list of angular velocities [rad/s] to apply in reach rotor to accomplish suchs forces and torques
         """
 
-        # Get the body frame of the vehicle
-        rb = self.get_dc_interface().get_rigid_body(self._stage_prefix + "/body")
+        # Get the body prim world transform matrix
+        body_prim = self._world.stage.GetPrimAtPath(self._stage_prefix + "/body")
+        body_world_matrix = omni.usd.get_world_transform_matrix(body_prim)
+        body_inv_matrix = body_world_matrix.GetInverse()
 
-        # Get the rotors of the vehicle
-        rotors = [self.get_dc_interface().get_rigid_body(self._stage_prefix + "/rotor" + str(i)) for i in range(self._thrusters._num_rotors)]
-
-        # Get the relative position of the rotors with respect to the body frame of the vehicle (ignoring the orientation for now)
-        relative_poses = self.get_dc_interface().get_relative_body_poses(rb, rotors)
+        # Compute relative positions of rotors with respect to body
+        relative_positions = []
+        for i in range(self._thrusters._num_rotors):
+            rotor_prim = self._world.stage.GetPrimAtPath(self._stage_prefix + "/rotor" + str(i))
+            rotor_world_matrix = omni.usd.get_world_transform_matrix(rotor_prim)
+            # Get rotor position in body frame
+            rel_matrix = rotor_world_matrix * body_inv_matrix
+            rel_translation = rel_matrix.ExtractTranslation()  # returns Gf.Vec3d
+            relative_positions.append(rel_translation)
 
         # Define the alocation matrix
         aloc_matrix = np.zeros((4, self._thrusters._num_rotors))
@@ -202,8 +214,8 @@ class Multirotor(Vehicle):
         aloc_matrix[0, :] = np.array(self._thrusters._rotor_constant)                                           
 
         # Define the second and third lines of the matrix (\tau_x [Nm] and \tau_y [Nm])
-        aloc_matrix[1, :] = np.array([relative_poses[i].p[1] * self._thrusters._rotor_constant[i] for i in range(self._thrusters._num_rotors)])
-        aloc_matrix[2, :] = np.array([-relative_poses[i].p[0] * self._thrusters._rotor_constant[i] for i in range(self._thrusters._num_rotors)])
+        aloc_matrix[1, :] = np.array([relative_positions[i][1] * self._thrusters._rotor_constant[i] for i in range(self._thrusters._num_rotors)])
+        aloc_matrix[2, :] = np.array([-relative_positions[i][0] * self._thrusters._rotor_constant[i] for i in range(self._thrusters._num_rotors)])
 
         # Define the forth line of the matrix (\tau_z [Nm])
         aloc_matrix[3, :] = np.array([self._thrusters._rolling_moment_coefficient[i] * self._thrusters._rot_dir[i] for i in range(self._thrusters._num_rotors)])

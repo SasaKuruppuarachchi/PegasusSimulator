@@ -43,7 +43,6 @@ from scipy.spatial.transform import Rotation
 from pathlib import Path
 
 import random
-from omni.isaac.debug_draw import _debug_draw
 
 
 class PegasusApp:
@@ -129,12 +128,15 @@ class PegasusApp:
         num_samples2,_ = trajectory2.shape
 
         # Draw the lines of the desired trajectory in Isaac Sim with the same color as the output plots for the paper
-        draw = _debug_draw.acquire_debug_draw_interface()
         point_list_1 = [(trajectory1[i,1], trajectory1[i,2], trajectory1[i,3]) for i in range(num_samples1)]
-        draw.draw_lines_spline(point_list_1, (31/255, 119/255, 180/255, 1), 5, False)
-
         point_list_2 = [(trajectory2[i,1], trajectory2[i,2], trajectory2[i,3]) for i in range(num_samples2)]
-        draw.draw_lines_spline(point_list_2, (255/255, 0, 0, 1), 5, False)
+        try:
+            import omni.debugdraw
+            draw = omni.debugdraw.get_debug_draw_interface()
+            draw.draw_lines_spline(point_list_1, (31/255, 119/255, 180/255, 1), 5, False)
+            draw.draw_lines_spline(point_list_2, (255/255, 0, 0, 1), 5, False)
+        except Exception:
+            carb.log_warn("Debug draw not available - trajectory visualization skipped")
 
         self.world.reset()
 
