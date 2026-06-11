@@ -111,6 +111,12 @@ class Multirotor(Vehicle):
             dt (float): The time elapsed between the previous and current function calls (s).
         """
 
+        # Skip physics update until Robot.initialize() has been called via world.reset().
+        # Without this guard, get_dof_index() / get_articulation_controller() would emit
+        # "Articulation needs to be initialized" warnings on every step before init.
+        if not self._articulation_initialized:
+            return
+
         # Get the desired angular velocities for each rotor from the first backend (can be mavlink or other) expressed in rad/s
         if len(self._backends) != 0:
             desired_rotor_velocities = self._backends[0].input_reference()

@@ -290,7 +290,7 @@ class UIDelegate:
                 config_multirotor.graphical_sensors = [MonocularCamera("camera", config={"update_rate": 60.0})]
                 
                 # Try to spawn the selected robot in the world to the specified namespace
-                Multirotor(
+                spawned_vehicle = Multirotor(
                     "/World/quadrotor",
                     ROBOTS[selected_robot],
                     self._vehicle_id,
@@ -300,9 +300,14 @@ class UIDelegate:
                 )
 
                 # In Isaac Sim 6.0, world.reset() must be called after adding objects to the scene
-                # to trigger Robot.initialize() via scene._finalize(), which initializes the ArticulationController.
+                # to trigger Robot.initialize() via scene._finalize().
+                # Set _initializing=True so that the 'playing' event fired by reset_async does NOT
+                # trigger backend.start() (which would launch PX4 prematurely before the user
+                # presses Play). The flag is cleared after stop_async completes.
+                spawned_vehicle._initializing = True
                 await self._pegasus_sim.world.reset_async()
                 await self._pegasus_sim.world.stop_async()
+                spawned_vehicle._initializing = False
 
             # Log that a vehicle of the type multirotor was spawned in the world via the extension UI
                 carb.log_info("Spawned the robot: " + selected_robot + " using the Pegasus Simulator UI")

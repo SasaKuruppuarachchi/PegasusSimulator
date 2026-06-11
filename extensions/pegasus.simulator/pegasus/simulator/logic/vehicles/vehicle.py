@@ -122,11 +122,10 @@ class Vehicle(Robot):
         # Flag to track whether Robot.initialize() (ArticulationController) has been called
         self._articulation_initialized = False
 
-        # Add a callback to start/stop of the simulation once the play/stop button is hit
-        self._world.add_timeline_callback(self._stage_prefix + "/start_stop_sim", self.sim_start_stop)
-
-        # --------------------------------------------------------------------
-        # -------------------- Add sensors to the vehicle --------------------
+        # Flag set by the UI delegate to suppress backend start/stop during the initialization
+        # reset cycle (world.reset_async() + world.stop_async() called right after spawning).
+        # Without this, reset_async fires a 'playing' event that launches PX4 prematurely.
+        self._initializing = False
         # --------------------------------------------------------------------
         self._sensors = sensors
         
@@ -214,6 +213,34 @@ class Vehicle(Robot):
         super().initialize(physics_sim_view=physics_sim_view)
         self._articulation_initialized = True
 
+        # world.reset() (called during the init cycle AND when Play is pressed in UI mode)
+        # clears callbacks before calling scene._finalize() -> vehicle.initialize().
+        # The init-cycle reset clears only timeline callbacks; the Play-button reset clears ALL.
+        # Re-register ALL callbacks here using remove-then-add to be idempotent in both cases.
+        for name, callback in [
+            (self._stage_prefix + "/state", self.update_state),
+            (self._stage_prefix + "/update", self.update),
+            (self._stage_prefix + "/Sensors", self.update_sensors),
+            (self._stage_prefix + "/mav_state", self.update_sim_state),
+        ]:
+            try:
+                self._world.remove_physics_callback(name)
+            except Exception:
+                pass
+            self._world.add_physics_callback(name, callback)
+
+        try:
+            self._world.remove_render_callback(self._stage_prefix + "/GraphicalSensors")
+        except Exception:
+            pass
+        self._world.add_render_callback(self._stage_prefix + "/GraphicalSensors", self.update_graphical_sensors)
+
+        try:
+            self._world.remove_timeline_callback(self._stage_prefix + "/start_stop_sim")
+        except Exception:
+            pass
+        self._world.add_timeline_callback(self._stage_prefix + "/start_stop_sim", self.sim_start_stop)
+
     def sim_start_stop(self, event):
         """
         Callback that is called every time there is a timeline event such as starting/stoping the simulation.
@@ -222,8 +249,34 @@ class Vehicle(Robot):
             event: A timeline event generated from Isaac Sim, such as starting or stoping the simulation.
         """
 
-        # If the start/stop button was pressed, then call the start and stop methods accordingly
-        if self._world.is_playing() and self._sim_running == False:
+        # If the start/stop button was pressed, then call the start and stop methods accordingly.
+        # Guard with _initializing: when world.reset_async() is called right after vehicle spawn
+        # (UI flow), it briefly fires a 'playing' event. We must not start backends then, because
+        # that would launch PX4 prematurely before the user presses Play.
+        if self._world.is_playing() and self._sim_running == False and not self._initializing:
+            # Re-register physics/render callbacks before starting. In Isaac Sim 6.0,
+            # world.stop_async() clears physics and render callbacks without calling
+            # initialize() again. Re-registering here (remove-then-add) ensures they
+            # are always live when physics actually begins, regardless of what
+            # stop_async() or any intermediate reset cleared.
+            for name, callback in [
+                (self._stage_prefix + "/state", self.update_state),
+                (self._stage_prefix + "/update", self.update),
+                (self._stage_prefix + "/Sensors", self.update_sensors),
+                (self._stage_prefix + "/mav_state", self.update_sim_state),
+            ]:
+                try:
+                    self._world.remove_physics_callback(name)
+                except Exception:
+                    pass
+                self._world.add_physics_callback(name, callback)
+
+            try:
+                self._world.remove_render_callback(self._stage_prefix + "/GraphicalSensors")
+            except Exception:
+                pass
+            self._world.add_render_callback(self._stage_prefix + "/GraphicalSensors", self.update_graphical_sensors)
+
             self._sim_running = True
 
             # Initialize the sensors
@@ -256,7 +309,11 @@ class Vehicle(Robot):
             for backend in self._backends:
                 backend.stop()
 
-            # Reset the rigid body prim cache and articulation init flag on stop
+            # Reset the rigid body prim cache on stop (stale RigidPrim objects become invalid after stop)
+            # Do NOT reset _articulation_initialized here - it was set by world.reset() calling
+            # scene._finalize() -> vehicle.initialize(). Resetting it causes update_state to
+            # permanently skip after the first stop, since world.play() (not world.reset()) is
+            # called when the user presses Play again.
             self._rigid_body_prims = {}
             self._articulation_initialized = False
 
