@@ -115,7 +115,7 @@ autodoc_mock_imports = [
     "pxr.PhysicsSchemaTools",
     "omni.replicator",
     "isaacsim.core.api",
-    "omni.isaac.kit",
+    "isaacsim.simulation_app",
     "isaacsim.core.cloner",
     "gym",
     "stable_baselines3",

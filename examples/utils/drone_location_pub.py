@@ -18,8 +18,11 @@ from rclpy.parameter import Parameter
 GRAVITY = 9.81
 
 class DroneLocationPublisher(Node):
-    def __init__(self):
-        super().__init__('drone_location_publisher')
+    def __init__(self, namespace='drone', vehicle_id=0,lidar_trans=[0.0795, 0.0, 0.0323],lidar_ori=[0.9238795, 0.0, 0.3826834, 0.0]):
+        self.namespace = namespace
+        self.vehicle_id = vehicle_id
+        self.vehicle_name = f"{self.namespace}{self.vehicle_id}"
+        super().__init__(f'{self.vehicle_name}_location_publisher')
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -27,21 +30,27 @@ class DroneLocationPublisher(Node):
             depth=1
         )
         #self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        self.gt_publisher_ = self.create_publisher(PoseStamped, 'drone0/gt_pose', qos_profile)
+        self.gt_publisher_ = self.create_publisher(PoseStamped, f'{self.vehicle_name}/gt_pose', qos_profile)
         self.rtf_publisher_ = self.create_publisher(Float32, 'real_Time_factor', qos_profile)
-        self.self_imu_publisher_ = self.create_publisher(Imu, 'drone0/self_imu', qos_profile)
-        self.imu_publisher_ = self.create_publisher(Imu, 'drone0/gt_imu', qos_profile)
-        self.forces_publisher = self.create_publisher(Float32MultiArray, 'drone0/gt_forces',qos_profile)
+        self.self_imu_publisher_ = self.create_publisher(Imu, f'{self.vehicle_name}/self_imu', qos_profile)
+        self.imu_publisher_ = self.create_publisher(Imu, f'{self.vehicle_name}/gt_imu', qos_profile)
+        self.forces_publisher = self.create_publisher(Float32MultiArray, f'{self.vehicle_name}/gt_forces',qos_profile)
         self.time_publisher = self.create_publisher(Clock, 'clock', qos_profile)
         self.pre_pose_pos = None
         self.pre_pose_ori = None
         self.u = None
         #self.timer = self.create_timer(1.0, self.check_clock_topic)  # Check every 1 second
         # Create a static transform broadcaster for lidar_link and base_link
-        self.lidar_trans = [0.0795, 0.0, 0.0323]
-        self.lidar_ori = [0.9238795, 0.0, 0.3826834, 0.0,]
+        self.lidar_trans = lidar_trans
+        self.lidar_ori = lidar_ori
         lidar_frame_broadcaster = StaticTransformBroadcaster(self)
-        self.publish_static_transform('drone0/lidar_link','drone0/base_link',self.lidar_trans, self.lidar_ori, lidar_frame_broadcaster)
+        self.publish_static_transform(
+            f'{self.vehicle_name}/lidar_link',
+            f'{self.vehicle_name}/base_link',
+            self.lidar_trans,
+            self.lidar_ori,
+            lidar_frame_broadcaster,
+        )
         
     def publish_static_transform(self, ch_frame, pr_frame, translation_xyz, orient_wxyz,broadcaster):
         # Define the static transform
@@ -100,7 +109,7 @@ class DroneLocationPublisher(Node):
         sim_time_.sec = math.floor(self_imu['time'])
         sim_time_.nanosec = int((self_imu['time'] - sim_time_.sec) * 1e9)
         msg.header.stamp = sim_time_
-        msg.header.frame_id = 'drone0/base_link'
+        msg.header.frame_id = f'{self.vehicle_name}/base_link'
         
         msg.linear_acceleration.x = float((self_imu['lin_acc'])[0])
         msg.linear_acceleration.y = float((self_imu['lin_acc'])[1])
@@ -146,7 +155,7 @@ class DroneLocationPublisher(Node):
         sim_time_.sec = math.floor(sim_time)
         sim_time_.nanosec = int((sim_time - sim_time_.sec) * 1e9)
         msg.header.stamp = sim_time_
-        msg.header.frame_id = 'drone0/base_link'
+        msg.header.frame_id = f'{self.vehicle_name}/base_link'
 
         linear_acceleration = state.get_linear_body_velocity_ned_frd()
         msg.linear_acceleration.x = linear_acceleration[0]

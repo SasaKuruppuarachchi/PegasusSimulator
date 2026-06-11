@@ -26,9 +26,10 @@ CONFIG_FILE = ROOT + "/pegasus.simulator/config/configs.yaml"
 # Define the Extension Assets Path
 ASSET_PATH = ROOT + "/pegasus.simulator/pegasus/simulator/assets"
 ROBOTS_ASSETS = ASSET_PATH + "/Robots"
+WORLDS_ASSETS = ASSET_PATH + "/Worlds"
 
 # Define the built in robots of the extension
-ROBOTS = {"Iris": ROBOTS_ASSETS + "/Iris/iris.usd","Flying Cube": ROBOTS_ASSETS + "/iris_cube/cube.usda", "Agipix v2": ROBOTS_ASSETS + "/Agipixv2/agipixv2.usd"} #, "Flying Cube": ROBOTS_ASSETS + "/iris_cube.usda"}
+ROBOTS = {"Iris": ROBOTS_ASSETS + "/Iris/iris.usd","Flying Cube": ROBOTS_ASSETS + "/iris_cube/cube.usda", "Agipix v2": ROBOTS_ASSETS + "/Agipixv2/agipixv2_1.usd"} #, "Flying Cube": ROBOTS_ASSETS + "/iris_cube.usda"}
 
 # Setup the default simulation environments path
 NVIDIA_ASSETS_PATH = str(nucleus.get_assets_root_path())
@@ -51,10 +52,11 @@ NVIDIA_SIMULATION_ENVIRONMENTS = {
 }
 
 FLAT_ENVIRONMENTS = {
-    "Full Warehouse": "/home/sasa/workspace/isaac_envs/warehouse_flt.usd",
-    "Hospital": "/home/sasa/workspace/isaac_envs/hospital.usd",
-    "Office": "/home/sasa/workspace/isaac_envs/office_flt.usd",
-    "AKW": "/home/sasa/workspace/isaac_envs/akw_flt.usda",
+    "Full Warehouse": WORLDS_ASSETS + "/isaac_envs/warehouse_flt.usd",
+    "Hospital": WORLDS_ASSETS + "/isaac_envs/hospital.usd",
+    "Office": WORLDS_ASSETS + "/isaac_envs/office_flt.usd",
+    "AKW": WORLDS_ASSETS + "/isaac_envs/akw_lvl1.usd",
+    "AKW_C": WORLDS_ASSETS + "/isaac_envs/akw_lvl1_climb.usd",
 }
 
 OMNIVERSE_ENVIRONMENTS = {
@@ -104,7 +106,7 @@ WORLD_SETTINGS = {
 DEFAULT_WORLD_SETTINGS = WORLD_SETTINGS['px4']
 
 # Define where the thumbnail of the vehicle is located
-THUMBNAIL = ROBOTS_ASSETS + "/Iris/iris_thumbnail.png"
+THUMBNAIL = ROBOTS_ASSETS + "/Agipixv2/agipixv2_thumbnail.png"
 
 # Define where the thumbail of the world is located
 WORLD_THUMBNAIL = ASSET_PATH + "/Worlds/Empty_thumbnail.png"
